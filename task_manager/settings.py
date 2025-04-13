@@ -47,7 +47,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'accounts',
     'tasks',
+    'reminders',
     'django_filters',
+    'django_celery_beat'
 ]
 
 
@@ -173,4 +175,17 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),  # Authorization header format: Bearer <token>
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',), # it is the default value
     'TOKEN_BLACKLIST_MODEL': 'token_blacklist.OutstandingToken', 
+}
+
+
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  
+CELERY_TIMEZONE = 'UTC'
+
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'check-reminders-every-5-minutes': {
+        'task': 'reminders.tasks.check_and_send_reminders',
+        'schedule': crontab(minute='*/5'),
+    },
 }

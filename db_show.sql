@@ -2,7 +2,7 @@
 -- PRAGMA table_info(accounts_profile); 
 -- PRAGMA table_info(token_blacklist_blacklistedtoken);
 -- PRAGMA table_info(token_blacklist_outstandingtoken);
-
+-- PRAGMA table_info(django_content_type); 
                     
    
 
@@ -11,11 +11,11 @@
 -- select * from token_blacklist_outstandingtoken;
 -- select * from accounts_passwordresetotp;
 -- DELETE FROM tasks_task WHERE id = 1;
--- select * from tasks_task;
-select * from tasks_category;
-                      
+-- select * from tasks_category;
+-- UPDATE tasks_task SET due_date = '2025-10-01' ;                   
+-- select * from django_content_type;
 
-
+SELECT * FROM django_celery_beat_periodictask;
 
 
 -- DELETE FROM accounts_customuser WHERE id = 1;

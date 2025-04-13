@@ -11,5 +11,5 @@ class TaskSerializer(serializers.ModelSerializer):
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), allow_null=True)
     class Meta:
         model = Task
-        fields = ['id', 'title', 'description', 'due_date', 'status', 'priority', 'user', 'category']
+        fields = ['id', 'title', 'description', 'due_date', 'start_time', 'end_time', 'status', 'priority', 'user', 'category']
         read_only_fields = ['user']

@@ -1,0 +1,17 @@
+---------------------------------ADMIN---------
+python manage.py createsuperuser
+Email: dhimimedamine2001@gmail.com
+First name: dhimi
+Last name: mohamed
+pwd: Helloworld2022.
+----------------------
+celery -A task_manager worker --loglevel=info --pool=solo #celery
+celery -A task_manager beat --loglevel=info  #celery-beat
+--------------------------------
+1. Old message still in Redis
+If you ever triggered debug_task earlier (even once), Celery might still have it queued in Redis.
+# Connect to your running Redis container
+docker exec -it my_redis redis-cli
+
+# Then inside Redis CLI:
+FLUSHALL

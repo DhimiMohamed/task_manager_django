@@ -39,17 +39,19 @@ class TaskAIService:
             dict: Extracted details with title, due_date, priority, category.
         """
         prompt = f"""
-        Extract structured details from the following task description:
-        "{task_description}"
+    Extract structured details from the following task description:
+    "{task_description}"
 
-        Return only a valid JSON object with the following fields and no extra text:
-        {{
-            "title": "Task Title",
-            "due_date": "YYYY-MM-DD" (or null if not specified),
-            "priority": 1 (1=Low, 2=Medium, 3=High),
-            "category": "Category Name" (or null if not specified)
-        }}
-        """
+    Return only a valid JSON object with the following fields and no extra text:
+    {{
+        "title": "Task Title",
+        "due_date": "YYYY-MM-DD" (or null if not specified),
+        "start_time": "HH:MM:00" (or null if not specified),
+        "end_time": "HH:MM:00" (or null if not specified),
+        "priority": 1 (1=Low, 2=Medium, 3=High),
+        "category": "Category Name" (or null if not specified)
+    }}
+    """
 
 
         response = ollama.generate(model="llama3.1", prompt=prompt)

@@ -9,6 +9,11 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .models import Task, Category
 from .serializers import TaskSerializer, CategorySerializer
 from .services import TaskAIService
+from rest_framework.exceptions import ValidationError
+from django.utils import timezone
+from django.utils.timezone import now
+from rest_framework.permissions import IsAuthenticated
+from collections import defaultdict
 
 class CategoryListCreateView(generics.ListCreateAPIView):
     """Allows users to list and create categories."""
@@ -48,12 +53,12 @@ class TaskListCreateView(generics.ListCreateAPIView):
         year_filter = self.request.query_params.get('year', None)
 
         if date_filter:
-            queryset = queryset.filter(due_date__date=date_filter)  # Filter tasks for a specific date
+            queryset = queryset.filter(due_date=date_filter)  # Filter tasks for a specific date
 
         if week_filter and year_filter:
             start_of_week = localdate().replace(year=int(year_filter), month=1, day=1) + timedelta(weeks=int(week_filter) - 1)
             end_of_week = start_of_week + timedelta(days=6)
-            queryset = queryset.filter(due_date__date__range=[start_of_week, end_of_week])
+            queryset = queryset.filter(due_date__range=[start_of_week, end_of_week])
 
         if month_filter and year_filter:
             queryset = queryset.filter(due_date__year=int(year_filter), due_date__month=int(month_filter))
@@ -71,7 +76,35 @@ class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return Task.objects.filter(user=self.request.user)  # Ensure users can only access their own tasks
 
+class TaskListBetweenDatesView(generics.ListAPIView):
+    """
+    Lists tasks due between two specified dates.
+    """
+    serializer_class = TaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+        start_date_str = self.request.query_params.get('start_date')
+        end_date_str = self.request.query_params.get('end_date')
+
+        if not start_date_str or not end_date_str:
+            raise ValidationError("Both start_date and end_date are required.")
+
+        try:
+            # Parse date strings to date objects
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+        except ValueError:
+            raise ValidationError("Invalid date format. Please use YYYY-MM-DD.")
+
+        if start_date > end_date:
+            raise ValidationError("start_date must be before end_date.")
+
+        # Filter the tasks by date range
+        queryset = Task.objects.filter(user=user, due_date__range=[start_date, end_date])
+        return queryset
 
 class ExtractTaskDetailsView(APIView):
     """
@@ -90,16 +123,35 @@ class ExtractTaskDetailsView(APIView):
 
         if extracted_data is None:
             return Response({"error": "AI extraction failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Convert due_date from string to datetime (if it exists)
-        due_date = extracted_data.get("due_date")
-        due_datetime = None
+        print (extracted_data)  # Debugging line to check the extracted data
+        
+        # Convert due_date, start_time, and end_time from string to datetime (if they exist)
+        due_date = extracted_data.get("due_date")  # Get the date
+        start_time = extracted_data.get("start_time") #get start time
+        end_time = extracted_data.get("end_time") #get end time
+        
+        due_date_obj = None # Initialize
+        start_time_obj = None # Initialize
+        end_time_obj = None # Initialize
 
         if due_date:
             try:
-                due_datetime = make_aware(datetime.strptime(due_date, "%Y-%m-%d"))  # Convert to timezone-aware DateTime
+                due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()  # Parse as date
             except ValueError:
-                return Response({"error": "Invalid date format received."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid due_date format. Please use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if start_time:
+            try:
+                start_time_obj = datetime.strptime(start_time, "%H:%M:%S").time()
+            except ValueError:
+                return Response({"error": "Invalid start_time format. Please use HH:MM:SS."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if end_time:
+            try:
+                end_time_obj = datetime.strptime(end_time, "%H:%M:%S").time()
+            except ValueError:
+                return Response({"error": "Invalid end_time format. Please use HH:MM:SS."}, status=status.HTTP_400_BAD_REQUEST)
+        
 
         # Get or create the category if provided
         category_name = extracted_data.get("category")
@@ -111,10 +163,65 @@ class ExtractTaskDetailsView(APIView):
         task = Task.objects.create(
             user=request.user,
             title=extracted_data["title"],
-            due_date=due_datetime,  # Now in correct DateTime format
+            due_date=due_date_obj,  
+            start_time=start_time_obj,
+            end_time=end_time_obj,
             priority=extracted_data["priority"],
             category=category  # Can be None
         )
 
         # Serialize the created task and return it
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+    
+# statistics
+class TaskStatisticsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        today = now().date()
+        start_week = today - timedelta(days=today.weekday())  # Monday
+        start_month = today.replace(day=1)
+
+        tasks = Task.objects.filter(user=user)
+
+        # Basic counts
+        total = tasks.count()
+        completed = tasks.filter(status='completed').count()
+        pending = tasks.filter(status='pending').count()
+
+        week_tasks = tasks.filter(due_date__gte=start_week)
+        month_tasks = tasks.filter(due_date__gte=start_month)
+
+        # Category breakdown
+        category_stats = defaultdict(lambda: {'total': 0, 'completed': 0, 'pending': 0})
+        for task in tasks:
+            category = task.category.name if task.category else "Uncategorized"
+            category_stats[category]['total'] += 1
+            if task.status == 'completed':
+                category_stats[category]['completed'] += 1
+            elif task.status == 'pending':
+                category_stats[category]['pending'] += 1
+
+        # Calendar heatmap-style grouping (date string -> task count)
+        calendar = defaultdict(int)
+        for task in tasks:
+            if task.due_date:
+                date_str = task.due_date.isoformat()
+                calendar[date_str] += 1
+
+        return Response({
+            "total_tasks": total,
+            "completed_tasks": completed,
+            "pending_tasks": pending,
+            "this_week": {
+                "total": week_tasks.count(),
+                "completed": week_tasks.filter(status='completed').count()
+            },
+            "this_month": {
+                "total": month_tasks.count(),
+                "completed": month_tasks.filter(status='completed').count()
+            },
+            "categories": category_stats,
+            "calendar": calendar
+        })
