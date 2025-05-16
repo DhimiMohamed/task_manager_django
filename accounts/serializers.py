@@ -42,7 +42,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
         # Generate email verification token
         token = default_token_generator.make_token(user)
-        verification_link = f'http://localhost:8000/api/accounts/verify/{user.id}/{token}/'
+        verification_link = f'http://localhost:5173/verify-email/?user_id={user.id}&token={token}'
 
         # Send the verification email
         send_mail(

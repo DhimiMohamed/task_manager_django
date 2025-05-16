@@ -86,9 +86,9 @@ class UserRegistrationViewTest(APITestCase):
             'password': 'testpass123',
             'password2': 'testpass123'
         }
-        response = self.client.post('/api/accounts/register/', data, format='json')
+        response = self.client.post('/api/v1/accounts/register/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['message'], 'User registered successfully. Please check your email for verification.')
+        self.assertEqual(response.data['message'], 'User registered successfully. Please check your email.')
 
     def test_user_registration_invalid_data(self):
         # Test registration with invalid data (mismatched passwords)
@@ -99,7 +99,7 @@ class UserRegistrationViewTest(APITestCase):
             'password': 'testpass123',
             'password2': 'wrongpass'
         }
-        response = self.client.post('/api/accounts/register/', data, format='json')
+        response = self.client.post('/api/v1/accounts/register/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('password', response.data)  # Ensure the error is related to password mismatch
 
@@ -116,13 +116,13 @@ class VerifyEmailViewTest(APITestCase):
 
     def test_email_verification_success(self):
         # Test successful email verification
-        response = self.client.get(f'/api/accounts/verify/{self.user.id}/{self.token}/')
+        response = self.client.get(f'/api/v1/accounts/verify/{self.user.id}/{self.token}/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'Email successfully verified. You can now log in.')
 
     def test_email_verification_invalid_token(self):
         # Test verification with an invalid token
-        response = self.client.get(f'/api/accounts/verify/{self.user.id}/invalid-token/')
+        response = self.client.get(f'/api/v1/accounts/verify/{self.user.id}/invalid-token/')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error'], 'Invalid or expired token.')
 
@@ -144,7 +144,7 @@ class UserLoginViewTest(APITestCase):
             'email': 'test@example.com',
             'password': 'testpass123'
         }
-        response = self.client.post('/api/accounts/login/', data, format='json')
+        response = self.client.post('/api/v1/accounts/login/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'Login successful')
         self.assertIn('access_token', response.data)
@@ -156,7 +156,7 @@ class UserLoginViewTest(APITestCase):
             'email': 'test@example.com',
             'password': 'wrongpass'
         }
-        response = self.client.post('/api/accounts/login/', data, format='json')
+        response = self.client.post('/api/v1/accounts/login/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.data['detail'], 'Invalid email or password.')
 
@@ -168,7 +168,7 @@ class UserLoginViewTest(APITestCase):
             'email': 'test@example.com',
             'password': 'testpass123'
         }
-        response = self.client.post('/api/accounts/login/', data, format='json')
+        response = self.client.post('/api/v1/accounts/login/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.data['detail'], 'Email not verified. Please check your inbox.')
 
@@ -189,7 +189,7 @@ class LogoutViewTest(APITestCase):
         # Test successful logout
         self.client.force_authenticate(user=self.user)
         data = {'refresh': self.refresh_token}
-        response = self.client.post('/api/accounts/logout/', data, format='json')
+        response = self.client.post('/api/v1/accounts/logout/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'Successfully logged out.')
 
@@ -197,7 +197,7 @@ class LogoutViewTest(APITestCase):
         # Test logout with an invalid refresh token
         self.client.force_authenticate(user=self.user)
         data = {'refresh': 'invalid-token'}
-        response = self.client.post('/api/accounts/logout/', data, format='json')
+        response = self.client.post('/api/v1/accounts/logout/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error'], 'Invalid refresh token.')
 
@@ -217,7 +217,7 @@ class ProfileDetailViewTest(APITestCase):
     def test_profile_retrieval(self):
         # Test retrieving the profile of the logged-in user
         self.client.force_authenticate(user=self.user)
-        response = self.client.get('/api/accounts/profile/')
+        response = self.client.get('/api/v1/accounts/profile/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['user']['email'], 'test@example.com')
         self.assertEqual(response.data['bio'], 'Test bio')
@@ -226,7 +226,7 @@ class ProfileDetailViewTest(APITestCase):
         # Test updating the profile
         self.client.force_authenticate(user=self.user)
         data = {'bio': 'Updated bio', 'location': 'Updated City'}
-        response = self.client.patch('/api/accounts/profile/', data, format='json')
+        response = self.client.patch('/api/v1/accounts/profile/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['bio'], 'Updated bio')
         self.assertEqual(response.data['location'], 'Updated City')
@@ -415,7 +415,7 @@ class RequestPasswordResetViewTest(APITestCase):
     def test_request_password_reset_success(self):
         # Test successful OTP generation
         data = {'email': 'test@example.com'}
-        response = self.client.post('/api/accounts/password-reset/request/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/request/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'OTP sent to your email.')
 
@@ -427,7 +427,7 @@ class RequestPasswordResetViewTest(APITestCase):
     def test_request_password_reset_user_not_found(self):
         # Test case where user does not exist
         data = {'email': 'nonexistent@example.com'}
-        response = self.client.post('/api/accounts/password-reset/request/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/request/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.data['message'], 'User with this email does not exist.')
 
@@ -450,14 +450,14 @@ class VerifyOTPViewTest(APITestCase):
     def test_verify_otp_success(self):
         # Test successful OTP verification
         data = {'email': 'test@example.com', 'otp': '123456'}
-        response = self.client.post('/api/accounts/password-reset/verify-otp/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/verify-otp/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'OTP verified successfully.')
 
     def test_verify_otp_invalid(self):
         # Test invalid OTP
         data = {'email': 'test@example.com', 'otp': '000000'}
-        response = self.client.post('/api/accounts/password-reset/verify-otp/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/verify-otp/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['message'], 'Invalid OTP.')
 
@@ -466,7 +466,7 @@ class VerifyOTPViewTest(APITestCase):
         self.otp.expires_at = now() - timedelta(minutes=5)
         self.otp.save()
         data = {'email': 'test@example.com', 'otp': '123456'}
-        response = self.client.post('/api/accounts/password-reset/verify-otp/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/verify-otp/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['message'], 'OTP has expired.')
 
@@ -493,7 +493,7 @@ class ResetPasswordViewTest(APITestCase):
             'otp': '123456',
             'new_password': 'newpass123'
         }
-        response = self.client.post('/api/accounts/password-reset/reset-password/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/reset-password/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'Password reset successfully.')
 
@@ -511,7 +511,7 @@ class ResetPasswordViewTest(APITestCase):
             'otp': '000000',
             'new_password': 'newpass123'
         }
-        response = self.client.post('/api/accounts/password-reset/reset-password/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/reset-password/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['message'], 'Invalid OTP.')
 
@@ -524,6 +524,6 @@ class ResetPasswordViewTest(APITestCase):
             'otp': '123456',
             'new_password': 'newpass123'
         }
-        response = self.client.post('/api/accounts/password-reset/reset-password/', data, format='json')
+        response = self.client.post('/api/v1/accounts/password-reset/reset-password/', data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['message'], 'OTP has expired.')

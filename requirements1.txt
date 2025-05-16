@@ -1,0 +1,6 @@
+# pip install django-filter
+# pip install ollama
+# pip install celery redis
+# pip install django-celery-beat
+# pip install drf-yasg
+# pip install django-cors-headers

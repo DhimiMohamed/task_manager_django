@@ -10,21 +10,59 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 # from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from .models import Profile
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
 
 User = get_user_model()
 
 class UserRegistrationView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Register a new user",
+        operation_description="Registers a new user and creates a profile. Sends verification email.",
+        request_body=UserRegistrationSerializer,
+        responses={
+            201: openapi.Response(description="User registered successfully"),
+            400: openapi.Response(description="Validation errors in request body")
+        }
+    )
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            Profile.objects.create(user=user)  # Create a profile for the new user
-            return Response({'message': 'User registered successfully. Please check your email for verification.'}, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)  # Auto-returns 400 with errors
+        
+        user = serializer.save()
+        Profile.objects.create(user=user)
+        
+        return Response(
+            {"message": "User registered successfully. Please check your email."},
+            status=status.HTTP_201_CREATED
+        )
 
 
 
 class VerifyEmailView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Verify user email",
+        operation_description="Verifies a user's email using a user ID and token provided via email.",
+        manual_parameters=[
+            openapi.Parameter(
+                'user_id',
+                openapi.IN_PATH,
+                description="ID of the user to verify",
+                type=openapi.TYPE_INTEGER
+            ),
+            openapi.Parameter(
+                'token',
+                openapi.IN_PATH,
+                description="Verification token from email",
+                type=openapi.TYPE_STRING
+            )
+        ],
+        responses={
+            200: openapi.Response(description="Email successfully verified"),
+            400: openapi.Response(description="Invalid user or token")
+        }
+    )
     def get(self, request, user_id, token):
         User = get_user_model()
 
@@ -32,6 +70,9 @@ class VerifyEmailView(APIView):
             user = User.objects.get(id=user_id)  # Fetch user by ID
         except User.DoesNotExist:
             return Response({"error": "Invalid user."}, status=status.HTTP_400_BAD_REQUEST)
+        # Check if the user is already verified
+        if user.is_verified:
+            return Response({"message": "Email already verified. You can log in."}, status=status.HTTP_200_OK)
 
         # Validate the token
         if default_token_generator.check_token(user, token):
@@ -44,8 +85,91 @@ class VerifyEmailView(APIView):
         return Response({"error": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class ResendVerificationEmailView(APIView):
+    @swagger_auto_schema(
+        operation_description="Resend verification email to a user who has not yet verified their email.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='User\'s email address')
+            },
+            required=['email']
+        ),
+        responses={
+            200: openapi.Response(
+                description="Verification email resent successfully",
+                examples={
+                    'application/json': {
+                        'message': 'Verification email resent.'
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="Bad request, email missing or user already verified",
+                examples={
+                    'application/json': {
+                        'error': 'Email is required.'
+                    },
+                    'error': 'User is already verified.'
+                }
+            ),
+            404: openapi.Response(
+                description="User with the provided email not found",
+                examples={
+                    'application/json': {
+                        'error': 'No user with this email.'
+                    }
+                }
+            )
+        }
+    )
+    def post(self, request):
+        email = request.data.get('email')
+
+        if not email:
+            return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = get_user_model().objects.get(email=email)
+        except get_user_model().DoesNotExist:
+            return Response({'error': 'No user with this email.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.is_verified:
+            return Response({'error': 'User is already verified.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Generate a new verification token
+        token = default_token_generator.make_token(user)
+        verification_link = f'http://localhost:5173/verify-email/?user_id={user.id}&token={token}'
+
+        # Send the email
+        send_mail(
+            'Email Verification - Resent',
+            f'Please verify your email by clicking the link: {verification_link}',
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+        )
+
+        return Response({'message': 'Verification email resent.'}, status=status.HTTP_200_OK)
 
 class UserLoginView(APIView):
+    @swagger_auto_schema(
+        request_body=UserLoginSerializer,
+        responses={
+            status.HTTP_200_OK: openapi.Response(
+                description="Login successful",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "access_token": openapi.Schema(type=openapi.TYPE_STRING),
+                        "refresh_token": openapi.Schema(type=openapi.TYPE_STRING),
+                    },
+                ),
+            ),
+            status.HTTP_400_BAD_REQUEST: "Invalid credentials",
+        },
+        operation_description="Authenticate user and return JWT tokens",
+    )
     def post(self, request):
         serializer = UserLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -68,7 +192,25 @@ class UserLoginView(APIView):
 
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
-
+    
+    @swagger_auto_schema(
+        operation_summary="Logout user",
+        operation_description="Logs out a user by blacklisting their refresh token.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["refresh"],
+            properties={
+                "refresh": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Refresh token to be blacklisted"
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(description="Successfully logged out"),
+            400: openapi.Response(description="Invalid or missing refresh token")
+        }
+    )
     def post(self, request):
         try:
             refresh_token = request.data["refresh"]
@@ -100,6 +242,26 @@ from django.contrib.auth.hashers import make_password
 
 
 class RequestPasswordResetView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Request password reset",
+        operation_description="Sends a 6-digit OTP to the user's email if the email is associated with an account.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["email"],
+            properties={
+                "email": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format=openapi.FORMAT_EMAIL,
+                    description="Email address associated with the user's account"
+                )
+            },
+            example={"email": "user@example.com"}
+        ),
+        responses={
+            200: openapi.Response(description="OTP sent to email"),
+            404: openapi.Response(description="User with this email does not exist")
+        }
+    )
     def post(self, request):
         email = request.data.get("email")
 
@@ -130,6 +292,31 @@ class RequestPasswordResetView(APIView):
 
 
 class VerifyOTPView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Verify password reset OTP",
+        operation_description="Verifies the 6-digit OTP sent to the user's email for password reset.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["email", "otp"],
+            properties={
+                "email": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format=openapi.FORMAT_EMAIL,
+                    description="User's email address"
+                ),
+                "otp": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="6-digit OTP sent via email"
+                )
+            },
+            example={"email": "user@example.com", "otp": "123456"}
+        ),
+        responses={
+            200: openapi.Response(description="OTP verified successfully"),
+            400: openapi.Response(description="Invalid or expired OTP"),
+            404: openapi.Response(description="User with this email does not exist")
+        }
+    )
     def post(self, request):
         email = request.data.get("email")
         otp = request.data.get("otp")
@@ -151,6 +338,40 @@ class VerifyOTPView(APIView):
         return Response({"message": "OTP verified successfully."}, status=status.HTTP_200_OK)
     
 class ResetPasswordView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Reset user password",
+        operation_description="Resets the user's password after OTP verification.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["email", "otp", "new_password"],
+            properties={
+                "email": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format=openapi.FORMAT_EMAIL,
+                    description="User's email address"
+                ),
+                "otp": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="6-digit OTP sent to email"
+                ),
+                "new_password": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format=openapi.FORMAT_PASSWORD,
+                    description="New password to be set"
+                )
+            },
+            example={
+                "email": "user@example.com",
+                "otp": "123456",
+                "new_password": "MyNewSecurePassword123"
+            }
+        ),
+        responses={
+            200: openapi.Response(description="Password reset successfully"),
+            400: openapi.Response(description="Invalid or expired OTP"),
+            404: openapi.Response(description="User with this email does not exist")
+        }
+    )
     def post(self, request):
         email = request.data.get("email")
         otp = request.data.get("otp")
@@ -200,20 +421,20 @@ class ResetPasswordView(APIView):
 #         except TokenError:
 #             return Response({"detail": "Token is invalid or already blacklisted."}, status=status.HTTP_401_UNAUTHORIZED)
 
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def test_authentication(request):
-    user = request.user
+# @api_view(["GET"])
+# @permission_classes([IsAuthenticated])
+# def test_authentication(request):
+#     user = request.user
 
-    if not user.is_verified:
-        return Response({"detail": "Email not verified. Please verify your email."}, status=403)
+#     if not user.is_verified:
+#         return Response({"detail": "Email not verified. Please verify your email."}, status=403)
 
-    return Response({
-        "message": "Authentication successful!",
-        "user": {
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "username": user.username
-        }
-    })
+#     return Response({
+#         "message": "Authentication successful!",
+#         "user": {
+#             "email": user.email,
+#             "first_name": user.first_name,
+#             "last_name": user.last_name,
+#             "username": user.username
+#         }
+#     })
