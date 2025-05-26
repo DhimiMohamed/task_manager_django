@@ -62,6 +62,8 @@ class TaskAIService:
             return {
                 "title": extracted_data.get("title", "Untitled Task"),
                 "due_date": extracted_data.get("due_date"),
+                "start_time": extracted_data.get("start_time", "08:00:00"),
+                "end_time": extracted_data.get("end_time", "10:00:00"),
                 "priority": extracted_data.get("priority", 1),
                 "category": extracted_data.get("category"),
             }

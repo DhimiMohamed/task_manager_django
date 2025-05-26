@@ -14,6 +14,8 @@ from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework.permissions import IsAuthenticated
 from collections import defaultdict
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 class CategoryListCreateView(generics.ListCreateAPIView):
     """Allows users to list and create categories."""
@@ -108,11 +110,59 @@ class TaskListBetweenDatesView(generics.ListAPIView):
 
 class ExtractTaskDetailsView(APIView):
     """
-    API endpoint to extract task details from a text description using AI
-    and save it to the database.
+    API endpoint to extract task details from a text description using AI,
+    process the data (parse dates, handle category), and return it for user verification.
     """
     permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_description="Extract task details from natural language text using AI",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['description'],
+            properties={
+                'description': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Natural language description of the task'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Successfully extracted task details",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'title': openapi.Schema(type=openapi.TYPE_STRING),
+                        'due_date': openapi.Schema(type=openapi.TYPE_STRING, format='date', nullable=True),
+                        'start_time': openapi.Schema(type=openapi.TYPE_STRING, format='time', nullable=True),
+                        'end_time': openapi.Schema(type=openapi.TYPE_STRING, format='time', nullable=True),
+                        'priority': openapi.Schema(type=openapi.TYPE_STRING),
+                        'category': openapi.Schema(type=openapi.TYPE_STRING, nullable=True),
+                        'category_id': openapi.Schema(type=openapi.TYPE_INTEGER, nullable=True),
+                        'status': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="Bad request",
+                examples={
+                    "application/json": {
+                        "error": "Task description is required."
+                    }
+                }
+            ),
+            500: openapi.Response(
+                description="AI extraction failed",
+                examples={
+                    "application/json": {
+                        "error": "AI extraction failed."
+                    }
+                }
+            )
+        },
+        tags=['Tasks']
+    )
     def post(self, request):
         task_description = request.data.get("description", "")
 
@@ -159,19 +209,19 @@ class ExtractTaskDetailsView(APIView):
         if category_name:
             category, _ = Category.objects.get_or_create(name=category_name, user=request.user)
 
-        # Create and save the Task
-        task = Task.objects.create(
-            user=request.user,
-            title=extracted_data["title"],
-            due_date=due_date_obj,  
-            start_time=start_time_obj,
-            end_time=end_time_obj,
-            priority=extracted_data["priority"],
-            category=category  # Can be None
-        )
 
-        # Serialize the created task and return it
-        return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+        response_data = {
+            "title": extracted_data["title"],
+            "due_date": due_date_obj.isoformat() if due_date_obj else None,
+            "start_time": start_time_obj.isoformat() if start_time_obj else None,
+            "end_time": end_time_obj.isoformat() if end_time_obj else None,
+            "priority": extracted_data["priority"],
+            "category": category_name,  # Return the name (frontend can use this for display)
+            "category_id": category.id if category else None,  # Include ID if needed
+            "status": "unverified",  # Helps frontend know this needs confirmation
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)
     
 # statistics
 class TaskStatisticsView(APIView):
