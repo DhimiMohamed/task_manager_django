@@ -275,3 +275,40 @@ class TaskStatisticsView(APIView):
             "categories": category_stats,
             "calendar": calendar
         })
+    
+
+
+
+
+
+# test
+from ai.services import get_ai_response
+class AIAssistantView(APIView):
+    """
+    API View for handling AI assistant requests
+    """
+    
+    def post(self, request, format=None):
+        # Get prompt from request data
+        prompt = request.data.get('prompt', '').strip()
+        
+        # Validate prompt
+        if not prompt:
+            return Response(
+                {'error': 'Prompt is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get AI response
+            ai_response = get_ai_response(prompt)
+            return Response(
+                {'response': ai_response},
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            return Response(
+                {'error': f'AI service error: {str(e)}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )

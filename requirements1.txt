@@ -4,3 +4,5 @@
 # pip install django-celery-beat
 # pip install drf-yasg
 # pip install django-cors-headers
+# pip install python-dotenv
+# pip install openai

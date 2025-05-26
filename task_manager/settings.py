@@ -211,3 +211,7 @@ SWAGGER_SETTINGS = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
+
+
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
