@@ -215,3 +215,11 @@ CORS_ALLOWED_ORIGINS = [
 
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+
+# Groq API Key (store in .env)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Required for handling large audio streams
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB

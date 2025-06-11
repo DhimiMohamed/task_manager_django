@@ -281,34 +281,268 @@ class TaskStatisticsView(APIView):
 
 
 
-# test
-from ai.services import get_ai_response
-class AIAssistantView(APIView):
+
+from ai.services1 import get_ai_response
+
+class AITaskAssistantView(APIView):
     """
-    API View for handling AI assistant requests
+    Handle AI task assistant requests with DRF.
+    Supports: POST /ai/task-assistant/
     """
-    
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_id="ai_task_assistant",
+        operation_description="""
+        Process user prompts with AI assistant that can perform task-related actions.
+        The AI can create tasks, update task statuses, search tasks, and answer questions.
+        Requires authentication.
+        """,
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['prompt'],
+            properties={
+                'prompt': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="User's natural language prompt/request",
+                    example="Create a task called 'Finish project' due tomorrow"
+                ),
+                # Add other possible parameters if your frontend might send them
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Successful AI response",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'response': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            description="AI response containing message and any actions taken",
+                            properties={
+                                'user_message': openapi.Schema(
+                                    type=openapi.TYPE_STRING,
+                                    description="AI's response to the user"
+                                ),
+                                'details': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_STRING),
+                                    description="List of actions performed"
+                                ),
+                                'tool_results': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    description="Detailed results of any tools executed",
+                                    items=openapi.Schema(
+                                        type=openapi.TYPE_OBJECT,
+                                        properties={
+                                            'tool': openapi.Schema(type=openapi.TYPE_STRING),
+                                            'args': openapi.Schema(type=openapi.TYPE_OBJECT),
+                                            'result': openapi.Schema(type=openapi.TYPE_OBJECT),
+                                            'error': openapi.Schema(type=openapi.TYPE_STRING)
+                                        }
+                                    )
+                                )
+                            }
+                        )
+                    }
+                ),
+                examples={
+                    "application/json": {
+                        "response": {
+                            "user_message": "I've created a task 'Finish project' due tomorrow",
+                            "details": ["Created task 'Finish project'"],
+                            "tool_results": [
+                                {
+                                    "tool": "create_task",
+                                    "args": {"title": "Finish project", "due_date": "2023-12-01"},
+                                    "result": {"id": 123, "title": "Finish project"}
+                                }
+                            ]
+                        }
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="Bad Request",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'error': openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            description="Error message"
+                        )
+                    }
+                ),
+                examples={
+                    "application/json": {
+                        "error": "Prompt is required"
+                    }
+                }
+            ),
+            401: openapi.Response(
+                description="Unauthorized",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="Authentication credentials were not provided."
+                        )
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Internal Server Error",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'error': openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            description="Error details"
+                        )
+                    }
+                )
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=['AI Assistant']
+    )
     def post(self, request, format=None):
-        # Get prompt from request data
-        prompt = request.data.get('prompt', '').strip()
-        
-        # Validate prompt
+        prompt = request.data.get('prompt')
+    
         if not prompt:
             return Response(
-                {'error': 'Prompt is required'},
+                {"error": "Prompt is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            response = get_ai_response(request.user, prompt)
+            return Response({"response": response})
+        
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+from rest_framework.parsers import MultiPartParser  # Changed from FileUploadParser
+import time
+import os
+from ai.voice_service import VoiceRecognitionService
+from ai.exceptions import VoiceProcessingError
+
+class VoiceToTextView(APIView):
+    """
+    Handle voice input requests with DRF, convert to text, and process with AI assistant.
+    Supports: POST /ai/voice-to-text/
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser]
+
+    @swagger_auto_schema(
+        operation_id="voice_to_text",
+        operation_description="""
+        Convert speech in audio files to text and process with AI assistant.
+        The AI can create tasks, update task statuses, search tasks, and answer questions.
+        Supports MP3, WEBM, and WAV formats.
+        Maximum file size: 25MB (default Django setting).
+        Requires authentication.
+        """,
+        manual_parameters=[
+            openapi.Parameter(
+                name='file',
+                in_=openapi.IN_FORM,
+                type=openapi.TYPE_FILE,
+                required=True,
+                description="Audio file to transcribe (MP3, WEBM, or WAV)"
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Successful AI response",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'response': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            description="AI response containing message and any actions taken",
+                            properties={
+                                'user_message': openapi.Schema(
+                                    type=openapi.TYPE_STRING,
+                                    description="AI's response to the user"
+                                ),
+                                'details': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_STRING),
+                                    description="List of actions performed"
+                                ),
+                                'tool_results': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    description="Detailed results of any tools executed",
+                                    items=openapi.Schema(
+                                        type=openapi.TYPE_OBJECT,
+                                        properties={
+                                            'tool': openapi.Schema(type=openapi.TYPE_STRING),
+                                            'args': openapi.Schema(type=openapi.TYPE_OBJECT),
+                                            'result': openapi.Schema(type=openapi.TYPE_OBJECT),
+                                            'error': openapi.Schema(type=openapi.TYPE_STRING)
+                                        }
+                                    )
+                                )
+                            }
+                        )
+                    }
+                ),
+            ),
+            
+        },
+        consumes=['multipart/form-data'],
+        produces=['application/json'],
+        security=[{"Bearer": []}],
+        tags=['AI Assistant']
+    )
+    def post(self, request, format=None):
+        # Check if file was uploaded
+        if 'file' not in request.FILES:
+            return Response(
+                {"error": "No audio file provided. Please upload an MP3, WEBM, or WAV file."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        audio_file = request.FILES['file']
+        
+        # Validate file type
+        if not audio_file.name.lower().endswith(('.mp3', '.webm', '.wav')):
+            return Response(
+                {"error": "Unsupported file format. Please upload MP3, WEBM, or WAV."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         try:
-            # Get AI response
-            ai_response = get_ai_response(prompt)
-            return Response(
-                {'response': ai_response},
-                status=status.HTTP_200_OK
-            )
+            # First transcribe the audio to text
+            service = VoiceRecognitionService()
+            filename = f"audio_{int(time.time())}{os.path.splitext(audio_file.name)[1]}"
+            transcription_result = service.transcribe_audio_file(audio_file, filename)
             
+            # Then process the transcribed text with the AI assistant
+            prompt = transcription_result.get('text', '')
+            if not prompt:
+                return Response(
+                    {"error": "No speech detected in the audio file"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            response = get_ai_response(request.user, prompt)
+            return Response({"response": response})
+            
+        except VoiceProcessingError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         except Exception as e:
             return Response(
-                {'error': f'AI service error: {str(e)}'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

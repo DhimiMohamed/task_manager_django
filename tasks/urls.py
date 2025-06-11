@@ -1,7 +1,6 @@
 from django.urls import path
-from .views import TaskListCreateView, TaskDetailView, CategoryListCreateView, CategoryDetailView, ExtractTaskDetailsView, TaskListBetweenDatesView, TaskStatisticsView
+from .views import TaskListCreateView, TaskDetailView, CategoryListCreateView, CategoryDetailView, ExtractTaskDetailsView, TaskListBetweenDatesView, TaskStatisticsView, AITaskAssistantView, VoiceToTextView
 
-from .views import AIAssistantView
 
 
 urlpatterns = [
@@ -13,5 +12,6 @@ urlpatterns = [
     path('between-dates/', TaskListBetweenDatesView.as_view(), name='task-list-between-dates'), # Add this line
     path('stats/', TaskStatisticsView.as_view(), name='task-stats'),
 
-    path('ask-ai/', AIAssistantView.as_view(), name='ask_ai'),
+    path('ai/task-assistant/', AITaskAssistantView.as_view(), name='ai_task_assistant'),
+    path('ai/voice-to-text/', VoiceToTextView.as_view(), name='voice_to_text'),
 ]
