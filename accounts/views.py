@@ -438,3 +438,20 @@ class ResetPasswordView(APIView):
 #             "username": user.username
 #         }
 #     })
+
+from .serializers import UserSettingsSerializer
+
+class UserSettingsView(generics.RetrieveUpdateAPIView):
+    serializer_class = UserSettingsSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        # Returns the settings for the current user
+        return self.request.user.settings
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)

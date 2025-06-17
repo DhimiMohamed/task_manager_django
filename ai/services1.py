@@ -235,19 +235,22 @@ Respond ONLY as JSON in this format:
             })
 
     stage3_prompt = f"""
-You are an AI assistant for a task management application and You executed multiple tools with these results:
+You are an AI assistant for a task management application. You executed multiple tools with these results:
 {json.dumps(tool_results, indent=2)}
+
+Conversation context: {user_input}
 
 Respond ONLY in JSON format like this:
 {{
-  "user_message": "Your final message summarizing all actions",
+  "user_message": "Your final message summarizing all actions in the user's language",
   "details": [
     "Brief description of action 1",
     "Brief description of action 2"
-  ]
+  ],
+  "language": "The language the user is using (e.g., English, Spanish, etc.)"
 }}
 
-Make it clear, concise, and helpful. Summarize all actions taken.
+Make your response clear, concise, and helpful. Summarize all actions taken in the same language the user used in the conversation context.
 """.strip()
 
     response3 = client.chat.completions.create(

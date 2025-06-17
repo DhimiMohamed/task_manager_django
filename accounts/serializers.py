@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.contrib.auth.tokens import default_token_generator
 from django.conf import settings
-from .models import Profile
+from .models import Profile, UserSettings
 
 User = get_user_model()
 
@@ -85,3 +85,12 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ['user', 'bio', 'location'] 
         read_only_fields = ['user']  # Ensure user is set automatically
+
+
+class UserSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserSettings
+        fields = ['email_notifications', 'in_app_notifications', 'dark_mode', 'language']
+        extra_kwargs = {
+            'user': {'read_only': True}
+        }

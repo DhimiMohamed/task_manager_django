@@ -92,3 +92,26 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Notification for {self.user.email}: {self.message[:20]}..."
+    
+
+class UserSettings(models.Model):
+    LANGUAGES = [
+        ('en', 'English'),
+        ('fr', 'French'),
+        ('es', 'Spanish'),
+        # Add more languages as needed
+    ]
+    
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='settings')
+    
+    # Notification Preferences
+    email_notifications = models.BooleanField(default=True)
+    in_app_notifications = models.BooleanField(default=True)
+    
+    # Display Preferences
+    dark_mode = models.BooleanField(default=False)
+    language = models.CharField(max_length=10, choices=LANGUAGES, default='en')
+    
+    
+    def __str__(self):
+        return f"Settings for {self.user.email}"

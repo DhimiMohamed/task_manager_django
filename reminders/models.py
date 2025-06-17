@@ -2,10 +2,6 @@ from django.db import models
 from tasks.models import Task  # Import your Task model
 
 class Reminder(models.Model):
-    METHOD_CHOICES = [
-        ('email', 'Email'),
-        ('in_app', 'In-App'),
-    ]
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('sent', 'Sent'),
@@ -14,8 +10,23 @@ class Reminder(models.Model):
 
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
     reminder_time = models.DateTimeField()
-    method = models.CharField(max_length=50, choices=METHOD_CHOICES, default='email')
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='pending')
+    
+    # Status fields for each method (optional but recommended)
+    email_status = models.CharField(
+        max_length=50, 
+        choices=STATUS_CHOICES, 
+        default='pending',
+        blank=True,
+        null=True
+    )
+    in_app_status = models.CharField(
+        max_length=50, 
+        choices=STATUS_CHOICES, 
+        default='pending',
+        blank=True,
+        null=True
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
