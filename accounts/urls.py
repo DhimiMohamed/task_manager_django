@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistrationView, VerifyEmailView, UserLoginView, LogoutView, ProfileDetailView, RequestPasswordResetView, VerifyOTPView, ResetPasswordView, ResendVerificationEmailView, UserSettingsView
+from .views import UserRegistrationView, VerifyEmailView, UserLoginView, LogoutView, ProfileDetailView, RequestPasswordResetView, VerifyOTPView, ResetPasswordView, ResendVerificationEmailView, UserSettingsView, NotificationListView, NotificationMarkAsReadView, NotificationMarkAllAsReadView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 
@@ -17,5 +17,8 @@ urlpatterns = [
     path('password-reset/verify-otp/', VerifyOTPView.as_view(), name='verify-otp'),
     path('password-reset/reset-password/', ResetPasswordView.as_view(), name='reset-password'),
     path('settings/', UserSettingsView.as_view(), name='user-settings-api'),
+    path('notifications/', NotificationListView.as_view(), name='notification-list'),
+    path('notifications/<int:id>/mark-as-read/', NotificationMarkAsReadView.as_view(), name='notification-mark-read'),
+    path('notifications/mark-all-as-read/', NotificationMarkAllAsReadView.as_view(), name='notification-mark-all-read'),
 ]
 

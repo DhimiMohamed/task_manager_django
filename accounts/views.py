@@ -440,18 +440,221 @@ class ResetPasswordView(APIView):
 #     })
 
 from .serializers import UserSettingsSerializer
+from rest_framework import generics, permissions
+from .models import Notification
+from .serializers import NotificationSerializer
+
 
 class UserSettingsView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSettingsSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_description="Retrieve or update user settings",
+        responses={
+            200: UserSettingsSerializer(),
+            401: "Unauthorized"
+        }
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_description="Update user settings",
+        request_body=UserSettingsSerializer,
+        responses={
+            200: UserSettingsSerializer(),
+            400: "Bad Request",
+            401: "Unauthorized"
+        }
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_description="Partial update user settings",
+        request_body=UserSettingsSerializer,
+        responses={
+            200: UserSettingsSerializer(),
+            400: "Bad Request",
+            401: "Unauthorized"
+        }
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+
+class NotificationListView(generics.ListAPIView):
+    """
+    View to list all notifications for the authenticated user.
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="List all notifications for the authenticated user",
+        responses={
+            200: NotificationSerializer(many=True),
+            401: "Unauthorized"
+        }
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class NotificationMarkAsReadView(generics.UpdateAPIView):
+    """
+    View to mark a notification as read.
+    """
+    queryset = Notification.objects.all()
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'id'
+
+    @swagger_auto_schema(
+        operation_description="Mark a specific notification as read",
+        responses={
+            200: NotificationSerializer(),
+            401: "Unauthorized",
+            404: "Not Found"
+        }
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+
+class UserSettingsView(generics.RetrieveUpdateAPIView):
+    """
+    View to retrieve and update user settings.
+    """
+    serializer_class = UserSettingsSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
     def get_object(self):
-        # Returns the settings for the current user
+        # Automatically returns the settings for the current user
         return self.request.user.settings
 
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response(serializer.data)
+    @swagger_auto_schema(
+        operation_description="Retrieve user settings",
+        responses={
+            200: UserSettingsSerializer(),
+            401: "Unauthorized"
+        }
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_description="Update all user settings",
+        request_body=UserSettingsSerializer,
+        responses={
+            200: UserSettingsSerializer(),
+            400: "Bad Request",
+            401: "Unauthorized"
+        }
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_description="Partially update user settings",
+        request_body=UserSettingsSerializer,
+        responses={
+            200: UserSettingsSerializer(),
+            400: "Bad Request",
+            401: "Unauthorized"
+        }
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+
+class NotificationListView(generics.ListAPIView):
+    """
+    View to list all notifications for the authenticated user.
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Returns only notifications for the current authenticated user,
+        ordered by most recent first.
+        """
+        return Notification.objects.filter(
+            user=self.request.user
+        ).order_by('-created_at')
+
+    @swagger_auto_schema(
+        operation_description="List all notifications for the authenticated user (most recent first)",
+        responses={
+            200: NotificationSerializer(many=True),
+            401: "Unauthorized"
+        }
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class NotificationMarkAsReadView(generics.UpdateAPIView):
+    """
+    View to mark a notification as read.
+    Only allows marking notifications owned by the current user.
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        """
+        Ensures users can only update their own notifications
+        """
+        return Notification.objects.filter(user=self.request.user)
+
+    @swagger_auto_schema(
+        operation_description="Mark a specific notification as read",
+        responses={
+            200: NotificationSerializer(),
+            401: "Unauthorized",
+            404: "Not Found"
+        }
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+
+class NotificationMarkAllAsReadView(APIView):
+    """
+    View to mark all unread notifications as read for the authenticated user.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Mark all unread notifications as read",
+        responses={
+            200: openapi.Response(
+                description="Success response",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'status': openapi.Schema(type=openapi.TYPE_STRING),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'count': openapi.Schema(type=openapi.TYPE_INTEGER)
+                    }
+                )
+            ),
+            401: "Unauthorized"
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        # Mark all unread notifications as read for the current user
+        updated_count = Notification.objects.filter(
+            user=request.user,
+            is_read=False
+        ).update(is_read=True)
+        
+        return Response({
+            'status': 'success',
+            'message': 'Notifications marked as read',
+            'count': updated_count
+        })
