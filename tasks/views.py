@@ -2,7 +2,7 @@ from rest_framework import generics, permissions, filters, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.utils.timezone import localdate
-from django.db.models import Q
+from django.db.models import Q, Count
 from datetime import timedelta,datetime
 from django.utils.timezone import make_aware
 from django_filters.rest_framework import DjangoFilterBackend
@@ -224,56 +224,135 @@ class ExtractTaskDetailsView(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
     
 # statistics
+
+
 class TaskStatisticsView(APIView):
     permission_classes = [IsAuthenticated]
+    @swagger_auto_schema(
+        operation_description="Get task statistics for the authenticated user",
+        responses={
+            200: openapi.Response(
+                description="Task statistics data",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'total_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'completed_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'pending_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'upcoming_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'daily_tasks': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'labels': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_STRING)
+                                ),
+                                'data': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_INTEGER)
+                                )
+                            }
+                        ),
+                        'heatmap_data': openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(
+                                type=openapi.TYPE_ARRAY,
+                                items=openapi.Schema(type=openapi.TYPE_INTEGER)
+                            )
+                        ),
+                        'categories': openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(
+                                type=openapi.TYPE_OBJECT,
+                                properties={
+                                    'name': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'total': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'completed': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'value': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'color': openapi.Schema(type=openapi.TYPE_STRING)
+                                }
+                            )
+                        ),
+                        'completion_rate': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'pending_rate': openapi.Schema(type=openapi.TYPE_INTEGER)
+                    }
+                )
+            ),
+            401: "Unauthorized"
+        },
+        security=[{"Bearer": []}]
+    )
 
     def get(self, request):
         user = request.user
         today = now().date()
-        start_week = today - timedelta(days=today.weekday())  # Monday
-        start_month = today.replace(day=1)
-
+        
+        # Get last 7 days for the overview chart
+        last_week_dates = [today - timedelta(days=i) for i in range(6, -1, -1)]
+        
         tasks = Task.objects.filter(user=user)
 
-        # Basic counts
+        # Basic counts for the cards
         total = tasks.count()
         completed = tasks.filter(status='completed').count()
         pending = tasks.filter(status='pending').count()
+        upcoming = tasks.filter(due_date__gte=today, due_date__lt=today + timedelta(days=1)).count()
 
-        week_tasks = tasks.filter(due_date__gte=start_week)
-        month_tasks = tasks.filter(due_date__gte=start_month)
+        # Weekly task data for the bar chart (last 7 days)
+        daily_tasks = defaultdict(int)
+        
+        for date in last_week_dates:
+            daily_tasks[date.strftime("%a")] = tasks.filter(
+                due_date=date
+            ).count()
 
-        # Category breakdown
-        category_stats = defaultdict(lambda: {'total': 0, 'completed': 0, 'pending': 0})
-        for task in tasks:
-            category = task.category.name if task.category else "Uncategorized"
-            category_stats[category]['total'] += 1
-            if task.status == 'completed':
-                category_stats[category]['completed'] += 1
-            elif task.status == 'pending':
-                category_stats[category]['pending'] += 1
+        # Productivity heatmap data (tasks by scheduled hour and day of week)
+        heatmap_data = [[0] * 24 for _ in range(7)]  # 7 days x 24 hours
+        
+        for task in tasks.exclude(due_date__isnull=True).exclude(start_time__isnull=True):
+            day_of_week = task.due_date.weekday()  # Monday=0, Sunday=6
+            hour_of_day = task.start_time.hour if task.start_time else 12  # Default to noon if no time specified
+            heatmap_data[day_of_week][hour_of_day] += 1
 
-        # Calendar heatmap-style grouping (date string -> task count)
-        calendar = defaultdict(int)
-        for task in tasks:
-            if task.due_date:
-                date_str = task.due_date.isoformat()
-                calendar[date_str] += 1
+        # Category breakdown for pie chart
+        category_stats = []
+        category_tasks = tasks.values('category__name').annotate(
+            total=Count('id'),
+            completed=Count('id', filter=Q(status='completed'))
+        )
+        
+        for item in category_tasks:
+            name = item['category__name'] or "Uncategorized"
+            category_stats.append({
+                "name": name,
+                "total": item['total'],
+                "completed": item['completed'],
+                "value": item['total'],  # For the pie chart
+                "color": Category.objects.filter(name=name, user=user).first().color if name != "Uncategorized" else "#CCCCCC"
+            })
 
         return Response({
+            # Card data
             "total_tasks": total,
             "completed_tasks": completed,
             "pending_tasks": pending,
-            "this_week": {
-                "total": week_tasks.count(),
-                "completed": week_tasks.filter(status='completed').count()
+            "upcoming_tasks": upcoming,
+            
+            # Task overview chart data (last 7 days)
+            "daily_tasks": {
+                "labels": list(daily_tasks.keys()),
+                "data": list(daily_tasks.values())
             },
-            "this_month": {
-                "total": month_tasks.count(),
-                "completed": month_tasks.filter(status='completed').count()
-            },
+            
+            # Productivity heatmap data (based on scheduled time)
+            "heatmap_data": heatmap_data,
+            
+            # Category breakdown
             "categories": category_stats,
-            "calendar": calendar
+            
+            # Additional info that might be useful
+            "completion_rate": round((completed / total) * 100) if total > 0 else 0,
+            "pending_rate": round((pending / total) * 100) if total > 0 else 0
         })
     
 
