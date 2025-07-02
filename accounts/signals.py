@@ -4,12 +4,8 @@ from django.conf import settings
 from .models import UserSettings
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
-def create_user_settings(sender, instance, created, **kwargs):
-    """Automatically create UserSettings when a new user is created"""
-    if created:
+def handle_user_settings(sender, instance, created, **kwargs):
+    if created:  # New user → create settings
         UserSettings.objects.create(user=instance)
-
-@receiver(post_save, sender=settings.AUTH_USER_MODEL)
-def save_user_settings(sender, instance, **kwargs):
-    """Automatically save UserSettings when user is saved"""
-    instance.settings.save()
+    elif hasattr(instance, 'settings'):  # Existing user → save settings
+        instance.settings.save()

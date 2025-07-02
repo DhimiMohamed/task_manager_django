@@ -1,16 +1,22 @@
+# task_manager\tasks\views.py
 from rest_framework import generics, permissions, filters, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.utils.timezone import localdate
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import get_object_or_404
+from django.http import FileResponse
+from django.db import models
 from django.db.models import Q, Count
 from datetime import timedelta,datetime
 from django.utils.timezone import make_aware
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Task, Category
-from .serializers import TaskSerializer, CategorySerializer
+
+from projects.models import Project
+from .models import FileAttachment, RecurringTask, Task, Category, Comment
+from .serializers import CommentSerializer, FileAttachmentSerializer, RecurringTaskSerializer, TaskSerializer, CategorySerializer
 from .services import TaskAIService
 from rest_framework.exceptions import ValidationError
-from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework.permissions import IsAuthenticated
 from collections import defaultdict
@@ -18,15 +24,36 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 class CategoryListCreateView(generics.ListCreateAPIView):
-    """Allows users to list and create categories."""
     serializer_class = CategorySerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Category.objects.filter(user=self.request.user)  # Show only user's categories
+        # Get personal categories and project categories where user is a member
+        return Category.objects.filter(
+            models.Q(user=self.request.user, is_personal=True) | 
+            models.Q(project__team__members=self.request.user, is_personal=False)
+        ).distinct()
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)  # Assign category to the authenticated user
+        project_id = self.request.data.get('project')
+        
+        if project_id:
+            project = Project.objects.get(id=project_id)
+            if not project.team.members.filter(id=self.request.user.id).exists():
+                raise PermissionDenied("You don't have permission to create project categories")
+            
+            serializer.save(
+                user=self.request.user,
+                project=project,
+                is_personal=False
+            )
+        else:
+            # Personal category
+            serializer.save(
+                user=self.request.user,
+                is_personal=True,
+                project=None
+            )
 
 class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Allows users to update or delete their categories."""
@@ -37,16 +64,25 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Category.objects.filter(user=self.request.user)
 
 class TaskListCreateView(generics.ListCreateAPIView):
-    """Handles listing all tasks and creating new tasks."""
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['category', 'status', 'priority']
+    filterset_fields = ['category', 'status', 'priority', 'project', 'assigned_to']
     ordering_fields = ['due_date', 'priority']
 
     def get_queryset(self):
         user = self.request.user
-        queryset = Task.objects.filter(user=user)
+        # Get tasks where user is owner, assigned to, or part of the project team
+        queryset = Task.objects.filter(
+            models.Q(user=user) |
+            models.Q(assigned_to=user) |
+            models.Q(project__team__members=user)
+        ).distinct()
+
+        # Add project filtering if specified
+        project_id = self.request.query_params.get('project')
+        if project_id:
+            queryset = queryset.filter(project_id=project_id)
 
         # Get query parameters for date filtering
         date_filter = self.request.query_params.get('date', None)
@@ -68,15 +104,37 @@ class TaskListCreateView(generics.ListCreateAPIView):
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        # Handle assignment, project permissions, etc.
+        assigned_to_id = self.request.data.get('assigned_to')
+        project_id = self.request.data.get('project')
+        
+        if project_id:
+            project = Project.objects.get(id=project_id)
+            if not project.team.members.filter(id=self.request.user.id).exists():
+                raise PermissionDenied("You don't have permission to create tasks in this project")
+        
+        if assigned_to_id and assigned_to_id != self.request.user.id:
+            # Verify assignee is in the same team if project task
+            if project_id and not project.team.members.filter(id=assigned_to_id).exists():
+                raise PermissionDenied("You can only assign to team members")
+        
+        serializer.save(
+            user=self.request.user,
+            created_by=self.request.user,
+            is_personal=not bool(project_id)
+        )
 
 class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """Handles retrieving, updating, and deleting a single task."""
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Task.objects.filter(user=self.request.user)  # Ensure users can only access their own tasks
+        user = self.request.user
+        return Task.objects.filter(
+            models.Q(user=user) |
+            models.Q(assigned_to=user) |
+            models.Q(project__team__members=user)
+        ).distinct()
 
 class TaskListBetweenDatesView(generics.ListAPIView):
     """
@@ -105,8 +163,125 @@ class TaskListBetweenDatesView(generics.ListAPIView):
             raise ValidationError("start_date must be before end_date.")
 
         # Filter the tasks by date range
-        queryset = Task.objects.filter(user=user, due_date__range=[start_date, end_date])
+        queryset = Task.objects.filter(models.Q(user=user) |
+            models.Q(assigned_to=user) |
+            models.Q(project__team__members=user),
+            due_date__range=[start_date, end_date]
+        ).distinct()
         return queryset
+# ----------------------------------------------------
+
+class RecurringTaskListCreateView(generics.ListCreateAPIView):
+    serializer_class = RecurringTaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return RecurringTask.objects.filter(
+            models.Q(created_by=user) |
+            models.Q(assigned_to=user) |
+            models.Q(project__team__members=user)
+        ).distinct()
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+class RecurringTaskDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = RecurringTaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return RecurringTask.objects.filter(
+            models.Q(created_by=user) |
+            models.Q(assigned_to=user) |
+            models.Q(project__team__members=user)
+        ).distinct()
+
+class GenerateRecurringTasksView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request, *args, **kwargs):
+        # Logic to generate task instances from recurring tasks
+        pass
+
+
+class CommentListCreateView(generics.ListCreateAPIView):
+    serializer_class = CommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        task_id = self.kwargs.get('task_id')
+        return Comment.objects.filter(task_id=task_id)
+
+    def perform_create(self, serializer):
+        task = get_object_or_404(Task, pk=self.kwargs.get('task_id'))
+        # Verify user has permission to comment on this task
+        if not (task.user == self.request.user or 
+                task.assigned_to == self.request.user or
+                (task.project and task.project.team.members.filter(id=self.request.user.id).exists())):
+            raise PermissionDenied("You don't have permission to comment on this task")
+        serializer.save(author=self.request.user, task=task)
+
+class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = CommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Comment.objects.filter(author=self.request.user)
+
+
+from rest_framework.parsers import MultiPartParser, FormParser
+
+class FileAttachmentListCreateView(generics.ListCreateAPIView):
+    serializer_class = FileAttachmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]  # Add this line
+
+    def get_queryset(self):
+        task_id = self.kwargs.get('task_id')
+        return FileAttachment.objects.filter(task_id=task_id)
+
+    def perform_create(self, serializer):
+        task = get_object_or_404(Task, pk=self.kwargs.get('task_id'))
+        if not (task.user == self.request.user or 
+                task.assigned_to == self.request.user or
+                (task.project and task.project.team.members.filter(id=self.request.user.id).exists())):
+            raise PermissionDenied("You don't have permission to add attachments to this task")
+        
+        # Auto-set the original filename if not provided
+        file = self.request.FILES.get('file')
+        if file and not serializer.validated_data.get('original_filename'):
+            serializer.validated_data['original_filename'] = file.name
+            
+        serializer.save(uploaded_by=self.request.user, task=task)
+
+class FileAttachmentDownloadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk, format=None):
+        attachment = get_object_or_404(FileAttachment, pk=pk)
+        # Check permissions
+        if not (attachment.task.user == request.user or 
+                attachment.task.assigned_to == request.user or
+                (attachment.task.project and attachment.task.project.team.members.filter(id=request.user.id).exists())):
+            raise PermissionDenied("You don't have permission to access this file")
+        
+        response = FileResponse(attachment.file)
+        response['Content-Disposition'] = f'attachment; filename="{attachment.original_filename}"'
+        return response
+
+class FileAttachmentDetailView(generics.RetrieveDestroyAPIView):
+    serializer_class = FileAttachmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return FileAttachment.objects.filter(
+            models.Q(task__user=self.request.user) |
+            models.Q(task__assigned_to=self.request.user) |
+            models.Q(task__project__team__members=self.request.user)
+        ).distinct()
+# ---------------------------------- AI ----------------------
 
 class ExtractTaskDetailsView(APIView):
     """

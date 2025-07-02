@@ -47,6 +47,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'accounts',
     'tasks',
+    'projects',
+    'teams',
+    'activity',
     'reminders',
     'django_filters',
     'django_celery_beat',
@@ -64,6 +67,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'activity.middleware.ActivityLogMiddleware',
 ]
 
 ROOT_URLCONF = 'task_manager.urls'
@@ -223,3 +227,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # Required for handling large audio streams
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+# Media files settings
+MEDIA_URL = '/media/'  # URL prefix for media files
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # Local filesystem path
