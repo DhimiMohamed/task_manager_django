@@ -1,9 +1,12 @@
 from rest_framework import generics, permissions, status, serializers
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
-from django.db.models import Q
+from django.db.models import Q, Count
 from .models import Team, TeamMembership
 from .serializers import TeamSerializer, TeamMembershipSerializer
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 class TeamListCreateView(generics.ListCreateAPIView):
     serializer_class = TeamSerializer
@@ -11,9 +14,11 @@ class TeamListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         # Show teams where user is a member
-        return Team.objects.filter(
-            members=self.request.user
-        ).annotate_member_count().order_by('name')
+        return (
+        Team.objects.filter(members=self.request.user)
+        .annotate(member_count=Count('members'))
+        .order_by('name')
+    )
 
     def perform_create(self, serializer):
         serializer.save()
@@ -69,11 +74,13 @@ class TeamMembershipListView(generics.ListCreateAPIView):
         ).exists():
             raise PermissionDenied("Only team admins can add members")
         
-        user = serializer.validated_data['user']
-        if TeamMembership.objects.filter(team=team, user=user).exists():
+        # Check if user is already a member (the serializer handles email-to-user conversion)
+        user = serializer.validated_data.get('user')
+        if user and TeamMembership.objects.filter(team=team, user=user).exists():
             raise serializers.ValidationError("User is already a team member")
         
-        serializer.save(team=team)
+        # The serializer already handles setting the team and user
+        serializer.save()
 
 class TeamMembershipDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = TeamMembershipSerializer
