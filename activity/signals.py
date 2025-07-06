@@ -9,15 +9,12 @@ from .models import ActivityLog
 from tasks.models import Task
 from .middleware import get_current_user
 
-
 # Dictionary of fields to ignore when logging changes
 IGNORED_FIELDS = {
-    'Task': ['created_at', 'updated_at', 'last_modified'],
     'Project': ['created_at', 'updated_at'],
     'Team': ['created_at']
 }
 
-# EXCLUDED_MODELS = {'ActivityLog', 'ContentType', 'Token', 'Group', 'Permission', 'User', 'Session', 'Site', 'LogEntry', 'PasswordResetOTP', 'Notification', 'UserSettings', 'Profile', 'CustomUser', 'Reminder', 'Outstanding'}
 ALLOWED_APPS = ('tasks', 'projects', 'teams')
 
 class ModelTracker:
@@ -43,6 +40,28 @@ class ModelTracker:
                     'to': str(new_value)
                 }
         return diff
+
+def get_project_from_instance(instance):
+    """Extract project from various model instances"""
+    # Direct project reference
+    if hasattr(instance, 'project'):
+        return instance.project
+    
+    # Task model - get project from task
+    if hasattr(instance, 'project_id'):
+        return getattr(instance, 'project', None)
+    
+    # Team model - might need to handle differently based on your structure
+    if instance.__class__.__name__ == 'Team':
+        # If team has projects, you might need to handle multiple projects
+        # For now, return None or handle based on your business logic
+        return None
+    
+    # Project model - return itself
+    if instance.__class__.__name__ == 'Project':
+        return instance
+    
+    return None
 
 # Core signal handlers
 @receiver(pre_save)
@@ -78,6 +97,9 @@ def post_save_handler(sender, instance, created, **kwargs):
     if not created and not changes:
         return
     
+    # Get project from instance
+    project = get_project_from_instance(instance)
+    
     with transaction.atomic():
         ActivityLog.objects.create(
             user=user,
@@ -85,7 +107,8 @@ def post_save_handler(sender, instance, created, **kwargs):
             content_object=instance,
             from_state=str(instance._pre_save_state) if not created else None,
             to_state=str(instance) if not created else None,
-            attachment_info=changes if changes else None
+            attachment_info=changes if changes else None,
+            project=project  # Add project to activity log
         )
 
 @receiver(post_delete)
@@ -96,13 +119,15 @@ def post_delete_handler(sender, instance, **kwargs):
     
     tracker = ModelTracker()
     user = getattr(instance, 'last_modified_by', None)
+    project = get_project_from_instance(instance)
     
     ActivityLog.objects.create(
         user=user,
         action='delete',
         content_object=instance,
         from_state=str(instance),
-        to_state='Deleted'
+        to_state='Deleted',
+        project=project  # Add project to activity log
     )
 
 # Custom signal handlers for specific models
@@ -118,20 +143,26 @@ def log_task_dependencies(sender, instance, action, pk_set, **kwargs):
         'post_clear': 'cleared'
     }[action]
     
+    project = get_project_from_instance(instance)
+    
     ActivityLog.objects.create(
         user=getattr(instance, 'last_modified_by', None),
         action='update',
         content_object=instance,
-        comment_text=f"Dependencies {verb} for task"
+        comment_text=f"Dependencies {verb} for task",
+        project=project  # Add project to activity log
     )
 
 # Status change handler (needs custom signal)
 def status_change_handler(sender, instance, old_status, new_status, **kwargs):
     """Handle status changes from custom signal"""
+    project = get_project_from_instance(instance)
+    
     ActivityLog.objects.create(
         user=getattr(instance, 'last_modified_by', None),
         action='status_change',
         content_object=instance,
         from_state=old_status,
-        to_state=new_status
+        to_state=new_status,
+        project=project  # Add project to activity log
     )

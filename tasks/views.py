@@ -401,8 +401,20 @@ class ExtractTaskDetailsView(APIView):
 # statistics
 
 
+from django.db.models import Count, Q
+from django.utils.timezone import now
+from datetime import timedelta
+from collections import defaultdict
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from .models import Task, Project, Category
+
 class TaskStatisticsView(APIView):
     permission_classes = [IsAuthenticated]
+    
     @swagger_auto_schema(
         operation_description="Get task statistics for the authenticated user",
         responses={
@@ -448,6 +460,21 @@ class TaskStatisticsView(APIView):
                                 }
                             )
                         ),
+                        'projects': openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(
+                                type=openapi.TYPE_OBJECT,
+                                properties={
+                                    'name': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'total': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'completed': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'completion_rate': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'color': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'team_name': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'team_members_count': openapi.Schema(type=openapi.TYPE_INTEGER)
+                                }
+                            )
+                        ),
                         'completion_rate': openapi.Schema(type=openapi.TYPE_INTEGER),
                         'pending_rate': openapi.Schema(type=openapi.TYPE_INTEGER)
                     }
@@ -465,6 +492,7 @@ class TaskStatisticsView(APIView):
         # Get last 7 days for the overview chart
         last_week_dates = [today - timedelta(days=i) for i in range(6, -1, -1)]
         
+        # Get all tasks for the user
         tasks = Task.objects.filter(user=user)
 
         # Basic counts for the cards
@@ -506,6 +534,29 @@ class TaskStatisticsView(APIView):
                 "color": Category.objects.filter(name=name, user=user).first().color if name != "Uncategorized" else "#CCCCCC"
             })
 
+        # Project breakdown - NEW IMPROVED VERSION
+        project_stats = []
+        
+        # Get all projects the user is associated with (either through team membership or ownership)
+        user_projects = Project.objects.filter(
+            Q(team__members=user) | Q(created_by=user)
+        ).distinct().prefetch_related('team__members')
+        
+        for project in user_projects:
+            project_tasks = tasks.filter(project=project)
+            total_tasks = project_tasks.count()
+            completed_tasks = project_tasks.filter(status='completed').count()
+            
+            project_stats.append({
+                "name": project.name,
+                "total": total_tasks,
+                "completed": completed_tasks,
+                "completion_rate": round((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0,
+                "color": "#4CAF50",  # You might want to store this on the Project model
+                "team_name": project.team.name if project.team else "Personal",
+                "team_members_count": project.team.members.count() if project.team else 1
+            })
+
         return Response({
             # Card data
             "total_tasks": total,
@@ -525,11 +576,13 @@ class TaskStatisticsView(APIView):
             # Category breakdown
             "categories": category_stats,
             
+            # Project breakdown (now with team info)
+            "projects": project_stats,
+            
             # Additional info that might be useful
             "completion_rate": round((completed / total) * 100) if total > 0 else 0,
             "pending_rate": round((pending / total) * 100) if total > 0 else 0
         })
-    
 
 
 

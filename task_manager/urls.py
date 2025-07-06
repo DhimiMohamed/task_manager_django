@@ -46,7 +46,7 @@ urlpatterns = [
     path('api/v1/reminders/', include('reminders.urls')),
     path('api/v1/projects/', include('projects.urls')),
     path('api/v1/teams/', include('teams.urls')),
-    # path('api/v1/activity/', include('activity.urls')),
+    path('api/v1/activity/', include('activity.urls')),
     path('api/v1/reminders/', include('reminders.urls')),
     # swagger urls
     path('swagger<format>/', schema_view.without_ui(cache_timeout=0), name='schema-json'),
