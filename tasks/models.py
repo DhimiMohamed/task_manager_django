@@ -10,19 +10,19 @@ class Category(models.Model):
     color = models.CharField(max_length=7, default="#CCCCCC")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     is_personal = models.BooleanField(default=True)
-    project = models.ForeignKey(
-        'projects.Project', 
-        on_delete=models.CASCADE, 
-        null=True, 
-        blank=True
-    )
+    # project = models.ForeignKey(
+    #     'projects.Project', 
+    #     on_delete=models.CASCADE, 
+    #     null=True, 
+    #     blank=True
+    # )
 
-    class Meta:
-        verbose_name_plural = 'categories'
-        unique_together = [
-            ('user', 'name', 'project'),  # Unique for personal categories
-            ('project', 'name')          # Unique within a project
-        ]
+    # class Meta:
+    #     verbose_name_plural = 'categories'
+    #     unique_together = [
+    #         ('user', 'name', 'project'),  # Unique for personal categories
+    #         ('project', 'name')          # Unique within a project
+    #     ]
 
     def __str__(self):
         return f"{self.name} ({'Personal' if self.is_personal else 'Project'})"

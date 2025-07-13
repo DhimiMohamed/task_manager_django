@@ -68,6 +68,8 @@ class CustomUser(AbstractUser):
 class Profile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     bio = models.TextField(blank=True, null=True)
+    skills = models.CharField(max_length=255, blank=True, null=True, help_text="Comma-separated list of skills")
+    experience = models.TextField(blank=True, null=True, help_text="Details about user's experience")
     date_of_birth = models.DateField(blank=True, null=True)
     location = models.CharField(max_length=100, blank=True, null=True)
 

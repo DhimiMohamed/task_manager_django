@@ -1,9 +1,60 @@
-# task_manager\teams\serializers.py
+# task_manager/teams/serializers.py
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Team, TeamMembership
+from django.utils.crypto import get_random_string
+from .models import Team, TeamMembership, TeamInvitation
 
 User = get_user_model()
+
+class TeamInvitationSerializer(serializers.ModelSerializer):
+    invited_by_email = serializers.CharField(source='invited_by.email', read_only=True)
+    team_name = serializers.CharField(source='team.name', read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    email = serializers.EmailField(required=False)  # <-- Add this line
+
+    class Meta:
+        model = TeamInvitation
+        fields = [
+            'id', 'team', 'email', 'invited_by', 'invited_by_email', 
+            'user', 'user_email', 'team_name', 'status', 'token', 
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['team', 'invited_by', 'token', 'created_at', 'updated_at']
+
+    def validate(self, data):
+        # Use instance values if not provided in data (for updates)
+        user = data.get('user') or getattr(self.instance, 'user', None)
+        email = data.get('email') or getattr(self.instance, 'email', None)
+
+        # On accepting invitation, use the authenticated user from the request
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            user = request.user
+            email = request.user.email
+
+        if not email and not user:
+            raise serializers.ValidationError("Either email or user must be provided")
+
+        data['user'] = user
+        data['email'] = email
+        return data
+
+    def create(self, validated_data):
+        # Generate unique token
+        validated_data['token'] = get_random_string(64)
+        
+        # Set invited_by from context
+        validated_data['invited_by'] = self.context['request'].user
+        
+        # If email is provided but no user, try to find existing user
+        if validated_data.get('email') and not validated_data.get('user'):
+            try:
+                user = User.objects.get(email=validated_data['email'])
+                validated_data['user'] = user
+            except User.DoesNotExist:
+                pass  # User doesn't exist yet, invitation will be for email only
+        
+        return super().create(validated_data)
 
 class TeamMembershipSerializer(serializers.ModelSerializer):
     # Write-only field for adding members by email
@@ -12,14 +63,14 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
     # Read-only user information fields
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
-    user_email = serializers.EmailField(source='user.email', read_only=True)  # ✅ RENAMED
+    user_email = serializers.EmailField(source='user.email', read_only=True)
     team_name = serializers.CharField(source='team.name', read_only=True)
-
+    
     class Meta:
         model = TeamMembership
         fields = [
-            'id', 'user_id', 'username', 'email', 'user_email', 'team', 'team_name',
-            'role', 'joined_at'
+            'id', 'user_id', 'username', 'email', 'user_email', 
+            'team', 'team_name', 'role', 'joined_at'
         ]
         read_only_fields = ['joined_at', 'team', 'user_id', 'username', 'user_email']
 
@@ -32,6 +83,7 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         email = validated_data.pop('email', None)
+        
         if email:
             try:
                 user = User.objects.get(email=email)
@@ -45,37 +97,44 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
         
         return super().create(validated_data)
 
-
 class TeamSerializer(serializers.ModelSerializer):
     members = TeamMembershipSerializer(
         source='teammembership_set', 
-        many=True,
+        many=True, 
+        read_only=True
+    )
+    invitations = TeamInvitationSerializer(
+        many=True, 
         read_only=True
     )
     member_count = serializers.IntegerField(read_only=True)
+    pending_invitations_count = serializers.SerializerMethodField()
     is_admin = serializers.SerializerMethodField()
     created_by = serializers.SerializerMethodField()
-
+    
     class Meta:
         model = Team
         fields = [
-            'id', 'name', 'members', 'member_count',
-            'created_at', 'is_admin', 'created_by'
+            'id', 'name', 'members', 'invitations', 'member_count', 
+            'pending_invitations_count', 'created_at', 'is_admin', 'created_by'
         ]
         read_only_fields = ['created_at']
+
+    def get_pending_invitations_count(self, obj):
+        return obj.invitations.filter(status='pending').count()
 
     def get_is_admin(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.teammembership_set.filter(
-                user=request.user,
+                user=request.user, 
                 role='admin'
             ).exists()
         return False
 
     def get_created_by(self, obj):
-        # Get the first admin member (creator)
-        creator = obj.teammembership_set.filter(role='admin').first()
+        # Get the first admin member (creator) - ordered by joined_at
+        creator = obj.teammembership_set.filter(role='admin').order_by('joined_at').first()
         return creator.user.username if creator else None
 
     def create(self, validated_data):
@@ -88,4 +147,5 @@ class TeamSerializer(serializers.ModelSerializer):
             user=request.user,
             role='admin'
         )
+        
         return team

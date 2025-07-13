@@ -30,9 +30,9 @@ class CategoryListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         # Get personal categories and project categories where user is a member
         return Category.objects.filter(
-            models.Q(user=self.request.user, is_personal=True) | 
-            models.Q(project__team__members=self.request.user, is_personal=False)
-        ).distinct()
+        user=self.request.user, 
+        is_personal=True
+    )
 
     def perform_create(self, serializer):
         project_id = self.request.data.get('project')
@@ -169,6 +169,61 @@ class TaskListBetweenDatesView(generics.ListAPIView):
             due_date__range=[start_date, end_date]
         ).distinct()
         return queryset
+    
+
+class BulkTaskUpdateView(generics.UpdateAPIView):
+    serializer_class = TaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return Task.objects.filter(
+            models.Q(user=user) |
+            models.Q(assigned_to=user) |
+            models.Q(project__team__members=user)
+        ).distinct()
+
+    def put(self, request, *args, **kwargs):
+        # Get date range from query parameters
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+
+        if not start_date_str or not end_date_str:
+            return Response(
+                {'error': 'Both start_date and end_date are required as query parameters'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Parse date strings to date objects
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+        except ValueError:
+            raise ValidationError("Invalid date format. Please use YYYY-MM-DD.")
+
+            
+        if start_date > end_date:
+            raise ValidationError("start_date must be before end_date.")
+
+       
+
+        # Filter tasks within the date range
+        queryset = self.get_queryset()
+        tasks_to_update = queryset.filter(
+            due_date__gte=start_date,
+            due_date__lte=end_date
+        )
+
+        # Update all filtered tasks (example: mark as completed)
+        updated_count = tasks_to_update.update(status='completed')
+
+        return Response({
+            'message': f'Successfully updated {updated_count} tasks between {start_date} and {end_date}',
+            'updated_count': updated_count,
+            'start_date': start_date_str,
+            'end_date': end_date_str
+        }, status=status.HTTP_200_OK)
 # ----------------------------------------------------
 
 class RecurringTaskListCreateView(generics.ListCreateAPIView):

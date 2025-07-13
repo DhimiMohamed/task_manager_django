@@ -30,8 +30,12 @@ SECRET_KEY = 'django-insecure-woai55lx-b3)@fib8j$&44@-#)(@%+v&@ycpdes3yf$!98nt9)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    'host.docker.internal',  # Allow Docker host → n8n requests
+    # Add other domains/IPs if needed (e.g., your LAN IP)
+]
 
 # Application definition
 
@@ -176,7 +180,8 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'admin@example.com')
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=120),  # Access token expires in 30 mins
+    # "ACCESS_TOKEN_LIFETIME": timedelta(minutes=120),  # Access token expires in 30 mins
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),  # Access token expires in 1 day
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),  # Refresh token lasts 7 days
     "ROTATE_REFRESH_TOKENS": True,  # Issue a new refresh token on refresh request
     "BLACKLIST_AFTER_ROTATION": True,  # Old refresh tokens get blacklisted

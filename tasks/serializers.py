@@ -24,6 +24,15 @@ class TaskSerializer(serializers.ModelSerializer):
         allow_null=True, 
         required=False
     )
+
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    project_name = serializers.CharField(source='project.name', read_only=True)
+ 
+    # Add email fields
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    assigned_to_email = serializers.EmailField(source='assigned_to.email', read_only=True, allow_null=True)
+
+
     assigned_to = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), 
         allow_null=True, 
@@ -44,8 +53,8 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             'id', 'title', 'description', 'due_date', 'start_time', 'end_time',
-            'status', 'priority', 'user', 'category', 'created_by',
-            'is_personal', 'project', 'assigned_to', 'depends_on',
+            'status', 'priority', 'user','user_email', 'category', 'category_name','created_by',
+            'is_personal', 'project', 'project_name', 'assigned_to', 'assigned_to_email', 'depends_on',
             'is_recurring', 'recurring_task', 'created_at', 'updated_at'
         ]
         read_only_fields = ['user', 'created_by', 'created_at', 'updated_at', 'is_personal']

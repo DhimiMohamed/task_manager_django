@@ -83,7 +83,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Profile
-        fields = ['user', 'bio', 'location'] 
+        fields = ['user', 'bio', 'skills', 'experience', 'location']
         read_only_fields = ['user']  # Ensure user is set automatically
 
 

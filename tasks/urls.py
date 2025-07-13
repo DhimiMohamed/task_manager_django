@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    TaskListCreateView, TaskDetailView,
+    BulkTaskUpdateView, TaskListCreateView, TaskDetailView,
     CategoryListCreateView, CategoryDetailView,
     ExtractTaskDetailsView, TaskListBetweenDatesView,
     TaskStatisticsView, AITaskAssistantView, VoiceToTextView,
@@ -16,6 +16,8 @@ urlpatterns = [
     path('<int:pk>/', TaskDetailView.as_view(), name='task-detail'),
     path('between-dates/', TaskListBetweenDatesView.as_view(), name='task-list-between-dates'),
     path('stats/', TaskStatisticsView.as_view(), name='task-stats'),
+
+    path('bulk_update/', BulkTaskUpdateView.as_view(), name='task-bulk-update'),
     
     # Category endpoints
     path('categories/', CategoryListCreateView.as_view(), name='category-list-create'),
