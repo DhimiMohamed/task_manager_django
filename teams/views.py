@@ -16,10 +16,14 @@ class TeamListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Show teams where user is a member
+        # Show teams where user is a member, and count all members using a Subquery
+        from django.db.models import OuterRef, Subquery
+        member_count = TeamMembership.objects.filter(team=OuterRef('pk')).values('team').annotate(
+            c=Count('id')
+        ).values('c')
         return (
             Team.objects.filter(members=self.request.user)
-            .annotate(member_count=Count('members'))
+            .annotate(member_count=Subquery(member_count[:1]))
             .prefetch_related('teammembership_set__user', 'invitations')
             .order_by('name')
         )
@@ -32,12 +36,24 @@ class TeamDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Only allow access if user is a member
+        # from projects.models import Project
+        team_id = self.kwargs['pk']
         return (
-            Team.objects.filter(members=self.request.user)
-            .annotate(member_count=Count('members'))
+            Team.objects.filter(pk=team_id)
+            .annotate(
+                member_count=Count('teammembership', distinct=True),
+                project_count=Count('project', distinct=True)  # 'project' is the related_name for Project.team FK
+            )
             .prefetch_related('teammembership_set__user', 'invitations')
         )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        # Add project_count to serializer context for use in serializer if needed
+        team = self.get_object()
+        context['project_count'] = getattr(team, 'project_count', 0)
+        return context
+
 
     def perform_update(self, serializer):
         # Only allow update if user is admin
@@ -160,27 +176,32 @@ class TeamInvitationListView(generics.ListCreateAPIView):
         team_id = self.kwargs['team_id']
         team = get_object_or_404(Team, pk=team_id)
         
-        # Only allow creating invitations if user is admin
+        # Only allow admins to send invitations
         if not self.request.user.teammembership_set.filter(
             team=team,
             role='admin'
         ).exists():
             raise PermissionDenied("Only team admins can send invitations")
         
-        # Check if user is already a member or has pending invitation
-        email = serializer.validated_data.get('email')
-        user = serializer.validated_data.get('user')
-        
-        if user and TeamMembership.objects.filter(team=team, user=user).exists():
-            raise serializers.ValidationError("User is already a team member")
-        
+        # Extract data
+        validated_data = serializer.validated_data
+        email = validated_data.get('email')
+        user = validated_data.get('user')
+
+        # Check for pending invitations for the email (whether or not user exists)
         if email and TeamInvitation.objects.filter(
             team=team, 
             email=email, 
             status='pending'
         ).exists():
-            raise serializers.ValidationError("Pending invitation already exists for this email")
-        
+            raise serializers.ValidationError({"email": f"Pending invitation already exists for this email: {email}"})
+
+        # Only check for existing membership if USER was EXPLICITLY provided
+        # (not auto-resolved from email)
+        if 'user' in serializer.initial_data:  # <-- Key change: Check initial_data, not validated_data
+            if TeamMembership.objects.filter(team=team, user=user).exists():
+                raise serializers.ValidationError("User is already a team member")
+
         serializer.save(team=team)
 
 class TeamInvitationDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -207,6 +228,12 @@ class TeamInvitationDetailView(generics.RetrieveUpdateDestroyAPIView):
 
         if not (is_admin or is_invited_user):
             raise PermissionDenied("Only team admins or invited users can modify invitations")
+
+        # Validation: either email or user must be provided (moved from serializer)
+        email = serializer.validated_data.get('email') or getattr(instance, 'email', None)
+        user = serializer.validated_data.get('user') or getattr(instance, 'user', None)
+        if not email and not user:
+            raise serializers.ValidationError("Either email or user must be provided")
 
         # If user is accepting invitation, create membership if not already a member
         if 'status' in serializer.validated_data and serializer.validated_data['status'] == 'accepted':

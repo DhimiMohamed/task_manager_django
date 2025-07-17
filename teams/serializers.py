@@ -21,23 +21,7 @@ class TeamInvitationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['team', 'invited_by', 'token', 'created_at', 'updated_at']
 
-    def validate(self, data):
-        # Use instance values if not provided in data (for updates)
-        user = data.get('user') or getattr(self.instance, 'user', None)
-        email = data.get('email') or getattr(self.instance, 'email', None)
-
-        # On accepting invitation, use the authenticated user from the request
-        request = self.context.get('request')
-        if request and request.user and request.user.is_authenticated:
-            user = request.user
-            email = request.user.email
-
-        if not email and not user:
-            raise serializers.ValidationError("Either email or user must be provided")
-
-        data['user'] = user
-        data['email'] = email
-        return data
+    # Validation moved to the view. No validation here.
 
     def create(self, validated_data):
         # Generate unique token
@@ -108,17 +92,31 @@ class TeamSerializer(serializers.ModelSerializer):
         read_only=True
     )
     member_count = serializers.IntegerField(read_only=True)
+    project_count = serializers.SerializerMethodField(read_only=True)
     pending_invitations_count = serializers.SerializerMethodField()
     is_admin = serializers.SerializerMethodField()
     created_by = serializers.SerializerMethodField()
+    color = serializers.CharField(required=False)
+    owner = serializers.EmailField(required=False, read_only=True)
     
     class Meta:
         model = Team
         fields = [
-            'id', 'name', 'members', 'invitations', 'member_count', 
+            'id', 'name', 'color', 'owner', 'members', 'invitations', 'member_count',
+            'project_count',
             'pending_invitations_count', 'created_at', 'is_admin', 'created_by'
         ]
         read_only_fields = ['created_at']
+
+    def get_project_count(self, obj):
+        # Prefer annotated value, fallback to context if present
+        if hasattr(obj, 'project_count'):
+            return obj.project_count
+        context_count = self.context.get('project_count')
+        if context_count is not None:
+            return context_count
+        # Fallback: count related projects
+        return obj.project_set.count()
 
     def get_pending_invitations_count(self, obj):
         return obj.invitations.filter(status='pending').count()
@@ -139,13 +137,13 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get('request')
+        # Always set owner as the request user's email
+        validated_data['owner'] = request.user.email
         team = Team.objects.create(**validated_data)
-        
         # Automatically make creator an admin member
         TeamMembership.objects.create(
             team=team,
             user=request.user,
             role='admin'
         )
-        
         return team

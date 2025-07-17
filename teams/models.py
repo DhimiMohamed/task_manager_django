@@ -2,8 +2,11 @@
 from django.db import models
 from django.conf import settings
 
+
 class Team(models.Model):
     name = models.CharField(max_length=100)
+    color = models.CharField(max_length=20, default='#2196F3')  # Default blue
+    owner = models.EmailField()  # Owner's email
     members = models.ManyToManyField(settings.AUTH_USER_MODEL, through='TeamMembership')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -11,7 +14,7 @@ class Team(models.Model):
         ordering = ['name']
 
     def __str__(self):
-        return self.name
+        return f"{self.name} (Owner: {self.owner})"
 
 class TeamMembership(models.Model):
     ROLE_CHOICES = [
