@@ -4,14 +4,14 @@ from teams.models import TeamMembership
 
 class ProjectSerializer(serializers.ModelSerializer):
     team_name = serializers.CharField(source='team.name', read_only=True)
-    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    created_by_email = serializers.CharField(source='created_by.email', read_only=True)
     is_team_admin = serializers.SerializerMethodField()
     
     class Meta:
         model = Project
         fields = [
             'id', 'team', 'team_name', 'name', 'description', 'status',
-            'start_date', 'end_date', 'created_by', 'created_by_username',
+            'start_date', 'end_date', 'created_by', 'created_by_email',
             'created_at', 'is_team_admin'
         ]
         read_only_fields = ['created_by', 'created_at']
