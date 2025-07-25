@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from django.utils.timezone import localdate
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from django.db import models
 from django.db.models import Q, Count
 from datetime import timedelta,datetime
@@ -907,4 +907,155 @@ class VoiceToTextView(APIView):
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+
+import requests
+
+class ChatAgent(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @swagger_auto_schema(
+        operation_description="Process an audio file through the AI agent",
+        manual_parameters=[
+            openapi.Parameter(
+                'file',
+                openapi.IN_FORM,
+                description="Audio file to process",
+                type=openapi.TYPE_FILE,
+                required=True
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Successful processing",
+                content={
+                    'application/json': openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'message': openapi.Schema(type=openapi.TYPE_STRING),
+                            'response': openapi.Schema(type=openapi.TYPE_STRING)
+                        },
+                        example={
+                            "message": "Audio processed", 
+                            "response": "Text transcription of audio"
+                        }
+                    ),
+                    'audio/wav': openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        format=openapi.FORMAT_BINARY,
+                        description="Processed audio file in WAV format"
+                    )
+                }
+            ),
+            400: openapi.Response(
+                description="Bad request",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'error': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                ),
+                examples={
+                    "application/json": {
+                        "error": "No audio file provided"
+                    }
+                }
+            ),
+            401: openapi.Response(
+                description="Unauthorized",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'error': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                ),
+                examples={
+                    "application/json": {
+                        "error": "Authorization header missing"
+                    }
+                }
+            ),
+            502: openapi.Response(
+                description="Bad Gateway",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'error': openapi.Schema(type=openapi.TYPE_STRING),
+                        'details': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                ),
+                examples={
+                    "application/json": {
+                        "error": "Failed to contact n8n agent",
+                        "details": "Connection timeout"
+                    }
+                }
+            )
+        },
+        consumes=["multipart/form-data"],
+        produces=["application/json", "audio/*"]
+    )
+
+    def post(self, request, *args, **kwargs):
+        audio_file = request.FILES.get('file')
+        
+        if not audio_file:
+            return Response({'error': 'No audio file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Extract user's access token from the request
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return Response({'error': 'Authorization header missing'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            # Prepare the file to be sent
+            files = {
+                'file': (audio_file.name, audio_file.file, audio_file.content_type)
+            }
+            
+            # Prepare headers
+            headers = {
+                'Authorization': auth_header,
+                # Content-Type will be set automatically by requests
+            }
+
+            data  = {
+            "audio": "1"
+            }
+
+            response = requests.post(
+                'http://localhost:5678/webhook-test/ai_agent',
+                data=data ,
+                files=files,
+                headers=headers
+                # timeout=10
+            )
+            
+            response.raise_for_status()  # Raise an exception for HTTP errors
+
+            # Check if response is audio
+            content_type = response.headers.get('Content-Type', '')
+            if 'audio' in content_type:
+                # Return the audio response directly
+                return HttpResponse(
+                    response.content,
+                    content_type=content_type,
+                    status=response.status_code
+                )
+            else:
+                # Handle non-audio responses
+                try:
+                    return Response(response.json(), status=response.status_code)
+                except ValueError:
+                    return Response(
+                        {'message': 'Audio processed', 'response': response.text},
+                        status=response.status_code
+                    )
+
+        except requests.exceptions.RequestException as e:
+            return Response(
+                {'error': 'Failed to contact n8n agent', 'details': str(e)}, 
+                status=status.HTTP_502_BAD_GATEWAY
             )

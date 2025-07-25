@@ -7,7 +7,7 @@ from .views import (
     RecurringTaskListCreateView, RecurringTaskDetailView,
     GenerateRecurringTasksView, CommentListCreateView,
     CommentDetailView, FileAttachmentListCreateView,
-    FileAttachmentDownloadView, FileAttachmentDetailView
+    FileAttachmentDownloadView, FileAttachmentDetailView, ChatAgent
 )
 
 urlpatterns = [
@@ -41,4 +41,7 @@ urlpatterns = [
     path('extract-task-details/', ExtractTaskDetailsView.as_view(), name='extract-task-details'),
     path('ai/task-assistant/', AITaskAssistantView.as_view(), name='ai_task_assistant'),
     path('ai/voice-to-text/', VoiceToTextView.as_view(), name='voice_to_text'),
+
+    # n8n
+    path('chat-agent/', ChatAgent.as_view(), name='audio-forward'),
 ]
