@@ -50,13 +50,30 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)
     team_name = serializers.CharField(source='team.name', read_only=True)
     
+    # Profile fields
+    skills = serializers.SerializerMethodField()
+    experience = serializers.SerializerMethodField()
+    
     class Meta:
         model = TeamMembership
         fields = [
             'id', 'user_id', 'username', 'email', 'user_email', 
-            'team', 'team_name', 'role', 'joined_at'
+            'team', 'team_name', 'role', 'joined_at',
+            'skills', 'experience'  # Add the new fields
         ]
         read_only_fields = ['joined_at', 'team', 'user_id', 'username', 'user_email']
+
+    def get_skills(self, obj):
+        # Get skills from the user's profile if it exists
+        if hasattr(obj.user, 'profile'):
+            return obj.user.profile.skills
+        return None
+
+    def get_experience(self, obj):
+        # Get experience from the user's profile if it exists
+        if hasattr(obj.user, 'profile'):
+            return obj.user.profile.experience
+        return None
 
     def validate(self, data):
         # Only require email/user validation for CREATE operations
