@@ -76,15 +76,32 @@ class UserLoginSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['email', 'first_name', 'last_name'] 
+        fields = ['email', 'first_name', 'last_name']  # Removed email
+        read_only_fields = ['email']  # Make email read-only
 
 class ProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)  # Include the nested UserSerializer
+    user = UserSerializer()  # Remove read_only=True to allow updates
+    profile_picture = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = Profile
-        fields = ['user', 'bio', 'skills', 'experience', 'location']
-        read_only_fields = ['user']  # Ensure user is set automatically
+        fields = ['user', 'bio', 'skills', 'experience', 'location', 'profile_picture']
+
+    def update(self, instance, validated_data):
+        # Handle user data update
+        user_data = validated_data.pop('user', {})
+        user = instance.user
+        
+        for attr, value in user_data.items():
+            setattr(user, attr, value)
+        user.save()
+        
+        # Handle profile data update
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        return instance
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):

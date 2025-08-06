@@ -222,15 +222,16 @@ class LogoutView(APIView):
         except Exception as e:
             return Response({"error": "Invalid refresh token."}, status=400)
 
+from rest_framework.parsers import MultiPartParser, FormParser
 
 class ProfileDetailView(generics.RetrieveUpdateAPIView):
     queryset = Profile.objects.all()
     serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     def get_object(self):
-        return self.request.user.profile  # Retrieve the profile of the logged-in user
-
+        return self.request.user.profile
 
 from django.utils.timezone import now, timedelta
 import random

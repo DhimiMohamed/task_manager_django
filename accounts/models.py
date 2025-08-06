@@ -72,6 +72,7 @@ class Profile(models.Model):
     experience = models.TextField(blank=True, null=True, help_text="Details about user's experience")
     date_of_birth = models.DateField(blank=True, null=True)
     location = models.CharField(max_length=100, blank=True, null=True)
+    profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True, null=True)
 
     def __str__(self):
         return self.user.email  # Or any other unique identifier
