@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ProjectListCreateView, ProjectDetailView, TeamProjectsListView, TeamMemberSkillsView, ProjectProposalView
+from .views import ProjectListCreateView, ProjectDetailView, TeamProjectsListView, TeamMemberSkillsView, ProjectProposalView, CreateProjectFromProposalView  
 
 urlpatterns = [
     path('', ProjectListCreateView.as_view(), name='project-list-create'),  # Handles list and create requests
@@ -11,4 +11,6 @@ urlpatterns = [
     path('team-member-skills/', TeamMemberSkillsView.as_view(), name='team-member-skills'),
     # Dedicated endpoint for generating project proposals
     path('generate-proposal/', ProjectProposalView.as_view(), name='generate-project-proposal'),
+
+    path('create-from-proposal/', CreateProjectFromProposalView.as_view(), name='create-project-from-proposal'),
 ]

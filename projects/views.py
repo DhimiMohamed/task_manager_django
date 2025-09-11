@@ -2,7 +2,7 @@ from rest_framework import generics, permissions
 from django.db.models import Q
 from django.core.exceptions import PermissionDenied
 from .models import Project
-from .serializers import ProjectSerializer
+from .serializers import ProjectCreationFromProposalSerializer, ProjectSerializer
 from teams.models import Team, TeamMembership
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -455,3 +455,145 @@ class ProjectProposalView(APIView):
 #                 {'error': f'An error occurred: {str(e)}'},
 #                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
 #             )
+
+
+from django.db import transaction
+from django.contrib.auth import get_user_model
+from tasks.models import Task
+
+User = get_user_model()
+class CreateProjectFromProposalView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Create a project and its tasks from an AI-generated proposal.
+        
+        Expected JSON structure:
+        {
+            "name": "Project Name",
+            "description": "Project description",
+            "deadline": "2025-12-31",
+            "teamId": 1,
+            "phases": [
+                {
+                    "name": "Phase 1",
+                    "description": "Phase description",
+                    "tasks": [
+                        {
+                            "title": "Task title",
+                            "description": "Task description",
+                            "assignedToId": 2,
+                            "priority": "high"
+                        }
+                    ]
+                }
+            ]
+        }
+        """
+        serializer = ProjectCreationFromProposalSerializer(
+            data=request.data, 
+            context={'request': request}
+        )
+        
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'errors': serializer.errors,
+                'message': 'Validation failed'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                # Extract validated data
+                validated_data = serializer.validated_data
+                team = validated_data['teamId']  # This is now a Team object due to validate_teamId
+                
+                # Create the project
+                project = Project.objects.create(
+                    name=validated_data['name'],
+                    description=validated_data.get('description', ''),
+                    end_date=validated_data['deadline'],
+                    team=team,
+                    created_by=request.user,
+                    last_modified_by=request.user,
+                    status='planning'  # Default status for new AI projects
+                )
+                
+                # Create tasks from all phases
+                created_tasks = []
+                
+                for phase_index, phase in enumerate(validated_data['phases']):
+                    phase_name = phase['name']
+                    
+                    for task_index, task_data in enumerate(phase['tasks']):
+                        # Map priority from string to integer
+                        priority_mapping = {'low': 1, 'medium': 2, 'high': 3}
+                        priority_int = priority_mapping.get(task_data['priority'], 2)
+                        
+                        # Get assigned user
+                        assigned_user = None
+                        if task_data.get('assignedToId'):
+                            try:
+                                assigned_user = User.objects.get(id=task_data['assignedToId'])
+                            except User.DoesNotExist:
+                                # Log this but continue - task will be unassigned
+                                pass
+                        
+                        # Create task with phase info in title
+                        task_title = f"[{phase_name}] {task_data['title']}"
+                        task_description = task_data.get('description', '')
+                        
+                        # Add phase context to description if it exists
+                        if phase.get('description'):
+                            task_description = f"Phase: {phase['description']}\n\n{task_description}"
+                        
+                        task = Task.objects.create(
+                            title=task_title,
+                            description=task_description,
+                            project=project,
+                            assigned_to=assigned_user,
+                            priority=priority_int,
+                            user=request.user,  # Required field for Task model
+                            created_by=request.user,
+                            last_modified_by=request.user,
+                            is_personal=False,  # Project tasks are not personal
+                            status='pending'
+                        )
+                        
+                        created_tasks.append({
+                            'id': task.id,
+                            'title': task.title,
+                            'phase': phase_name,
+                            'assigned_to': assigned_user.email if assigned_user else 'Unassigned',
+                            'priority': task_data['priority']
+                        })
+                
+                # Prepare response data
+                response_data = {
+                    'success': True,
+                    'message': f'Project "{project.name}" created successfully with {len(created_tasks)} tasks',
+                    'project': {
+                        'id': project.id,
+                        'name': project.name,
+                        'description': project.description,
+                        'team_id': project.team.id,
+                        'team_name': project.team.name,
+                        'status': project.status,
+                        'end_date': project.end_date.isoformat() if project.end_date else None,
+                        'created_at': project.created_at.isoformat(),
+                        'created_by': project.created_by.email
+                    },
+                    'tasks_created': len(created_tasks),
+                    'tasks': created_tasks,
+                    'phases_processed': len(validated_data['phases'])
+                }
+                
+                return Response(response_data, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Error creating project: {str(e)}',
+                'error_type': type(e).__name__
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

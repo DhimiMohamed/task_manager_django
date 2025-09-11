@@ -2,6 +2,7 @@
 from django.db import models
 from django.conf import settings
 from teams.models import Team
+from django.utils import timezone
 
 class Project(models.Model):
     STATUS_CHOICES = [
@@ -31,6 +32,12 @@ class Project(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        # Set start_date to today's date if it's not provided
+        if not self.start_date:
+            self.start_date = timezone.now().date()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.team})"
