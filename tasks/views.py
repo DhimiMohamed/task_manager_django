@@ -28,32 +28,22 @@ class CategoryListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Get personal categories and project categories where user is a member
-        return Category.objects.filter(
-        user=self.request.user, 
-        is_personal=True
-    )
+        # Get only personal categories (since project categories are no longer supported)
+        return Category.objects.filter(user=self.request.user, is_personal=True)
 
     def perform_create(self, serializer):
+        # Check if project_id is still being sent in request (for error handling)
         project_id = self.request.data.get('project')
         
         if project_id:
-            project = Project.objects.get(id=project_id)
-            if not project.team.members.filter(id=self.request.user.id).exists():
-                raise PermissionDenied("You don't have permission to create project categories")
-            
-            serializer.save(
-                user=self.request.user,
-                project=project,
-                is_personal=False
-            )
-        else:
-            # Personal category
-            serializer.save(
-                user=self.request.user,
-                is_personal=True,
-                project=None
-            )
+            # If client is still trying to create project categories, raise error
+            raise ValidationError("Project categories are no longer supported. Only personal categories can be created.")
+        
+        # Create personal category only
+        serializer.save(
+            user=self.request.user,
+            is_personal=True
+        )
 
 class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Allows users to update or delete their categories."""
@@ -62,6 +52,9 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Category.objects.filter(user=self.request.user)
+
+from django.db import models
+from teams.models import TeamMembership
 
 class TaskListCreateView(generics.ListCreateAPIView):
     serializer_class = TaskSerializer
@@ -72,17 +65,40 @@ class TaskListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        # Get tasks where user is owner, assigned to, or part of the project team
+        project_id = self.request.query_params.get('project')
+        
+        # Base queryset - user's own tasks and assigned tasks
         queryset = Task.objects.filter(
             models.Q(user=user) |
-            models.Q(assigned_to=user) |
-            models.Q(project__team__members=user)
-        ).distinct()
-
-        # Add project filtering if specified
-        project_id = self.request.query_params.get('project')
+            models.Q(assigned_to=user)
+        )
+        
+        # If project is specified, check user's role in that project's team
         if project_id:
-            queryset = queryset.filter(project_id=project_id)
+            try:
+                # Check if user is admin in the project's team
+                membership = TeamMembership.objects.get(
+                    user=user,
+                    team__projects__id=project_id
+                )
+                
+                if membership.role == 'admin':
+                    # Admin can see all tasks in the project
+                    queryset = Task.objects.filter(project_id=project_id)
+                else:
+                    # Member can only see their own tasks in the project
+                    queryset = queryset.filter(project_id=project_id)
+                    
+            except TeamMembership.DoesNotExist:
+                # User is not a member of the project's team
+                queryset = queryset.filter(project_id=project_id)
+        else:
+            # No specific project - include tasks from projects where user is a team member
+            queryset = queryset.filter(
+                models.Q(user=user) |
+                models.Q(assigned_to=user) |
+                models.Q(project__team__members=user)
+            ).distinct()
 
         # Get query parameters for date filtering
         date_filter = self.request.query_params.get('date', None)
@@ -91,7 +107,7 @@ class TaskListCreateView(generics.ListCreateAPIView):
         year_filter = self.request.query_params.get('year', None)
 
         if date_filter:
-            queryset = queryset.filter(due_date=date_filter)  # Filter tasks for a specific date
+            queryset = queryset.filter(due_date=date_filter)
 
         if week_filter and year_filter:
             start_of_week = localdate().replace(year=int(year_filter), month=1, day=1) + timedelta(weeks=int(week_filter) - 1)
@@ -641,152 +657,237 @@ class TaskStatisticsView(APIView):
 
 
 
+# *****************************************************************************************
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.http import HttpResponse
+import requests
+import json
 
-
-
-from ai.services1 import get_ai_response
 
 class AITaskAssistantView(APIView):
     """
     Handle AI task assistant requests with DRF.
     Supports: POST /ai/task-assistant/
+    Now uses n8n webhook instead of services1
     """
     permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_id="ai_task_assistant",
-        operation_description="""
-        Process user prompts with AI assistant that can perform task-related actions.
-        The AI can create tasks, update task statuses, search tasks, and answer questions.
-        Requires authentication.
-        """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['prompt'],
-            properties={
-                'prompt': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    description="User's natural language prompt/request",
-                    example="Create a task called 'Finish project' due tomorrow"
-                ),
-                # Add other possible parameters if your frontend might send them
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Successful AI response",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'response': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            description="AI response containing message and any actions taken",
-                            properties={
-                                'user_message': openapi.Schema(
-                                    type=openapi.TYPE_STRING,
-                                    description="AI's response to the user"
-                                ),
-                                'details': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(type=openapi.TYPE_STRING),
-                                    description="List of actions performed"
-                                ),
-                                'tool_results': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    description="Detailed results of any tools executed",
-                                    items=openapi.Schema(
-                                        type=openapi.TYPE_OBJECT,
-                                        properties={
-                                            'tool': openapi.Schema(type=openapi.TYPE_STRING),
-                                            'args': openapi.Schema(type=openapi.TYPE_OBJECT),
-                                            'result': openapi.Schema(type=openapi.TYPE_OBJECT),
-                                            'error': openapi.Schema(type=openapi.TYPE_STRING)
-                                        }
-                                    )
-                                )
-                            }
-                        )
-                    }
-                ),
-                examples={
-                    "application/json": {
-                        "response": {
-                            "user_message": "I've created a task 'Finish project' due tomorrow",
-                            "details": ["Created task 'Finish project'"],
-                            "tool_results": [
-                                {
-                                    "tool": "create_task",
-                                    "args": {"title": "Finish project", "due_date": "2023-12-01"},
-                                    "result": {"id": 123, "title": "Finish project"}
-                                }
-                            ]
-                        }
-                    }
-                }
-            ),
-            400: openapi.Response(
-                description="Bad Request",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'error': openapi.Schema(
-                            type=openapi.TYPE_STRING,
-                            description="Error message"
-                        )
-                    }
-                ),
-                examples={
-                    "application/json": {
-                        "error": "Prompt is required"
-                    }
-                }
-            ),
-            401: openapi.Response(
-                description="Unauthorized",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'detail': openapi.Schema(
-                            type=openapi.TYPE_STRING,
-                            example="Authentication credentials were not provided."
-                        )
-                    }
-                )
-            ),
-            500: openapi.Response(
-                description="Internal Server Error",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'error': openapi.Schema(
-                            type=openapi.TYPE_STRING,
-                            description="Error details"
-                        )
-                    }
-                )
-            )
-        },
-        security=[{"Bearer": []}],
-        tags=['AI Assistant']
-    )
+    
     def post(self, request, format=None):
         prompt = request.data.get('prompt')
-    
+        
         if not prompt:
             return Response(
                 {"error": "Prompt is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        try:
-            response = get_ai_response(request.user, prompt)
-            return Response({"response": response})
         
-        except Exception as e:
+        # Extract user's access token from the request
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return Response({'error': 'Authorization header missing'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        try:
+            # Prepare the data payload for n8n
+            data = {
+                "audio": "0",  # Set to "0" for text requests
+                "message": prompt
+            }
+            
+            # Prepare headers
+            headers = {
+                'Authorization': auth_header,
+                'Content-Type': 'application/json'
+            }
+            
+            # Send POST request to n8n webhook
+            response = requests.post(
+                'http://localhost:5678/webhook-test/ai_agent',
+                data=json.dumps(data),
+                headers=headers
+                # timeout=10
+            )
+            
+            response.raise_for_status()  # Raise an exception for HTTP errors
+            
+            # Check if response is audio (shouldn't be for text requests, but keeping for safety)
+            content_type = response.headers.get('Content-Type', '')
+            if 'audio' in content_type:
+                # Return the audio response directly (unlikely scenario)
+                return HttpResponse(
+                    response.content,
+                    content_type=content_type,
+                    status=response.status_code
+                )
+            else:
+                # Handle text/JSON responses
+                try:
+                    response_data = response.json()
+                    # Try to extract the response in the same format as before
+                    if isinstance(response_data, dict) and 'response' in response_data:
+                        return Response({"response": response_data['response']})
+                    elif isinstance(response_data, dict):
+                        # If the response is a dict but doesn't have 'response' key, use the whole response
+                        return Response({"response": response_data})
+                    else:
+                        # If response is not a dict, wrap it
+                        return Response({"response": response_data})
+                except ValueError:
+                    # If response is not JSON, return as plain text
+                    return Response({"response": response.text})
+        
+        except requests.exceptions.RequestException as e:
             return Response(
-                {"error": str(e)},
+                {"error": f"Failed to contact n8n agent: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+from ai.services1 import get_ai_response
+
+# class AITaskAssistantView(APIView):
+#     """
+#     Handle AI task assistant requests with DRF.
+#     Supports: POST /ai/task-assistant/
+#     """
+#     permission_classes = [IsAuthenticated]
+
+#     @swagger_auto_schema(
+#         operation_id="ai_task_assistant",
+#         operation_description="""
+#         Process user prompts with AI assistant that can perform task-related actions.
+#         The AI can create tasks, update task statuses, search tasks, and answer questions.
+#         Requires authentication.
+#         """,
+#         request_body=openapi.Schema(
+#             type=openapi.TYPE_OBJECT,
+#             required=['prompt'],
+#             properties={
+#                 'prompt': openapi.Schema(
+#                     type=openapi.TYPE_STRING,
+#                     description="User's natural language prompt/request",
+#                     example="Create a task called 'Finish project' due tomorrow"
+#                 ),
+#                 # Add other possible parameters if your frontend might send them
+#             }
+#         ),
+#         responses={
+#             200: openapi.Response(
+#                 description="Successful AI response",
+#                 schema=openapi.Schema(
+#                     type=openapi.TYPE_OBJECT,
+#                     properties={
+#                         'response': openapi.Schema(
+#                             type=openapi.TYPE_OBJECT,
+#                             description="AI response containing message and any actions taken",
+#                             properties={
+#                                 'user_message': openapi.Schema(
+#                                     type=openapi.TYPE_STRING,
+#                                     description="AI's response to the user"
+#                                 ),
+#                                 'details': openapi.Schema(
+#                                     type=openapi.TYPE_ARRAY,
+#                                     items=openapi.Schema(type=openapi.TYPE_STRING),
+#                                     description="List of actions performed"
+#                                 ),
+#                                 'tool_results': openapi.Schema(
+#                                     type=openapi.TYPE_ARRAY,
+#                                     description="Detailed results of any tools executed",
+#                                     items=openapi.Schema(
+#                                         type=openapi.TYPE_OBJECT,
+#                                         properties={
+#                                             'tool': openapi.Schema(type=openapi.TYPE_STRING),
+#                                             'args': openapi.Schema(type=openapi.TYPE_OBJECT),
+#                                             'result': openapi.Schema(type=openapi.TYPE_OBJECT),
+#                                             'error': openapi.Schema(type=openapi.TYPE_STRING)
+#                                         }
+#                                     )
+#                                 )
+#                             }
+#                         )
+#                     }
+#                 ),
+#                 examples={
+#                     "application/json": {
+#                         "response": {
+#                             "user_message": "I've created a task 'Finish project' due tomorrow",
+#                             "details": ["Created task 'Finish project'"],
+#                             "tool_results": [
+#                                 {
+#                                     "tool": "create_task",
+#                                     "args": {"title": "Finish project", "due_date": "2023-12-01"},
+#                                     "result": {"id": 123, "title": "Finish project"}
+#                                 }
+#                             ]
+#                         }
+#                     }
+#                 }
+#             ),
+#             400: openapi.Response(
+#                 description="Bad Request",
+#                 schema=openapi.Schema(
+#                     type=openapi.TYPE_OBJECT,
+#                     properties={
+#                         'error': openapi.Schema(
+#                             type=openapi.TYPE_STRING,
+#                             description="Error message"
+#                         )
+#                     }
+#                 ),
+#                 examples={
+#                     "application/json": {
+#                         "error": "Prompt is required"
+#                     }
+#                 }
+#             ),
+#             401: openapi.Response(
+#                 description="Unauthorized",
+#                 schema=openapi.Schema(
+#                     type=openapi.TYPE_OBJECT,
+#                     properties={
+#                         'detail': openapi.Schema(
+#                             type=openapi.TYPE_STRING,
+#                             example="Authentication credentials were not provided."
+#                         )
+#                     }
+#                 )
+#             ),
+#             500: openapi.Response(
+#                 description="Internal Server Error",
+#                 schema=openapi.Schema(
+#                     type=openapi.TYPE_OBJECT,
+#                     properties={
+#                         'error': openapi.Schema(
+#                             type=openapi.TYPE_STRING,
+#                             description="Error details"
+#                         )
+#                     }
+#                 )
+#             )
+#         },
+#         security=[{"Bearer": []}],
+#         tags=['AI Assistant']
+#     )
+#     def post(self, request, format=None):
+#         prompt = request.data.get('prompt')
+    
+#         if not prompt:
+#             return Response(
+#                 {"error": "Prompt is required"},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         try:
+#             response = get_ai_response(request.user, prompt)
+#             return Response({"response": response})
+        
+#         except Exception as e:
+#             return Response(
+#                 {"error": str(e)},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
         
 from rest_framework.parsers import MultiPartParser  # Changed from FileUploadParser
 import time
@@ -1057,5 +1158,81 @@ class ChatAgent(APIView):
         except requests.exceptions.RequestException as e:
             return Response(
                 {'error': 'Failed to contact n8n agent', 'details': str(e)}, 
+                status=status.HTTP_502_BAD_GATEWAY
+            )
+        
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import JSONParser
+from django.http import HttpResponse
+import requests
+import json
+
+
+class ChatTextAgent(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+    
+    def post(self, request, *args, **kwargs):
+        # Get text message from request body
+        text_message = request.data.get('message')
+        
+        if not text_message:
+            return Response({'error': 'No message provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Extract user's access token from the request
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return Response({'error': 'Authorization header missing'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        try:
+            # Prepare the data payload
+            data = {
+                "audio": "0",  # Set to "0" for text requests
+                "message": text_message
+            }
+            
+            # Prepare headers
+            headers = {
+                'Authorization': auth_header,
+                'Content-Type': 'application/json'
+            }
+            
+            # Send POST request to n8n webhook
+            response = requests.post(
+                'http://localhost:5678/webhook-test/ai_agent',
+                data=json.dumps(data),
+                headers=headers
+                # timeout=10
+            )
+            
+            response.raise_for_status()  # Raise an exception for HTTP errors
+            
+            # Check if response is audio (shouldn't be for text requests, but keeping for safety)
+            content_type = response.headers.get('Content-Type', '')
+            if 'audio' in content_type:
+                # Return the audio response directly (unlikely scenario)
+                return HttpResponse(
+                    response.content,
+                    content_type=content_type,
+                    status=response.status_code
+                )
+            else:
+                # Handle text/JSON responses
+                try:
+                    return Response(response.json(), status=response.status_code)
+                except ValueError:
+                    # If response is not JSON, return as plain text
+                    return Response(
+                        {'message': 'Text processed', 'response': response.text},
+                        status=response.status_code
+                    )
+        
+        except requests.exceptions.RequestException as e:
+            return Response(
+                {'error': 'Failed to contact n8n agent', 'details': str(e)},
                 status=status.HTTP_502_BAD_GATEWAY
             )

@@ -322,3 +322,65 @@ def accept_invitation(request, token):
             {"detail": "Invitation accepted successfully"}, 
             status=status.HTTP_200_OK
         )
+    
+class UserInvitationListView(generics.ListAPIView):
+    """
+    List all pending invitations for the authenticated user.
+    Includes both direct user invitations and email-based invitations.
+    """
+    serializer_class = TeamInvitationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return TeamInvitation.objects.filter(
+            Q(user=user) | Q(email=user.email),
+            status='pending'
+        ).select_related('team', 'invited_by').order_by('-created_at')
+    
+# Add this view function for accepting invitations by ID (alternative to token-based)
+class UserInvitationDetailView(generics.RetrieveUpdateAPIView):
+    """
+    Allow users to view and accept/reject their own invitations.
+    """
+    serializer_class = TeamInvitationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return TeamInvitation.objects.filter(
+            Q(user=user) | Q(email=user.email)
+        ).select_related('team', 'invited_by')
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        user = self.request.user
+        
+        # Verify this invitation belongs to the current user
+        if not (instance.user == user or instance.email == user.email):
+            raise PermissionDenied("You can only modify your own invitations")
+        
+        # Only allow status updates
+        allowed_fields = {'status'}
+        update_fields = set(serializer.validated_data.keys())
+        if not update_fields.issubset(allowed_fields):
+            raise PermissionDenied("You can only update the status of invitations")
+        
+        # If accepting invitation, create membership
+        if 'status' in serializer.validated_data and serializer.validated_data['status'] == 'accepted':
+            # Check if user is already a member
+            if TeamMembership.objects.filter(team=instance.team, user=user).exists():
+                raise serializers.ValidationError("You are already a member of this team")
+            
+            # Create membership
+            TeamMembership.objects.create(
+                team=instance.team,
+                user=user,
+                role='member'
+            )
+            
+            # Update the invitation's user field if it was email-only
+            if not instance.user:
+                instance.user = user
+        
+        serializer.save()

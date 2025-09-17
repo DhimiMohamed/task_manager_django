@@ -7,7 +7,7 @@ from .views import (
     RecurringTaskListCreateView, RecurringTaskDetailView,
     GenerateRecurringTasksView, CommentListCreateView,
     CommentDetailView, FileAttachmentListCreateView,
-    FileAttachmentDownloadView, FileAttachmentDetailView, ChatAgent
+    FileAttachmentDownloadView, FileAttachmentDetailView, ChatAgent, ChatTextAgent
 )
 
 urlpatterns = [
@@ -44,4 +44,6 @@ urlpatterns = [
 
     # n8n
     path('chat-agent/', ChatAgent.as_view(), name='audio-forward'),
+    path('text-agent/', ChatTextAgent.as_view(), name='text-forward'),  # new text URL
+
 ]

@@ -7,6 +7,8 @@ from .views import (
     TeamMembershipDetailView,
     TeamInvitationListView,
     TeamInvitationDetailView,
+    UserInvitationListView,
+    UserInvitationDetailView,
     accept_invitation
 )
 
@@ -23,6 +25,11 @@ urlpatterns = [
     path('<int:team_id>/invitations/', TeamInvitationListView.as_view(), name='team-invitation-list'),
     path('<int:team_id>/invitations/<int:pk>/', TeamInvitationDetailView.as_view(), name='team-invitation-detail'),
     
+    # User's own invitations
+    path('my-invitations/', UserInvitationListView.as_view(), name='user-invitations'),
+    path('my-invitations/<int:pk>/', UserInvitationDetailView.as_view(), name='user-invitation-detail'),
+
+
     # Public invitation acceptance (via email link)
     path('invitations/accept/<str:token>/', accept_invitation, name='accept-invitation'),
 ]

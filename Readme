@@ -3,7 +3,7 @@ python manage.py createsuperuser
 Email: dhimimedamine2001@gmail.com
 First name: dhimi
 Last name: mohamed
-pwd: Helloworld2022.
+pwd: Dhimi2001.
 ----------------------
 celery -A task_manager worker --loglevel=info --pool=solo  #celery
 celery -A task_manager beat --loglevel=info  #celery-beat
