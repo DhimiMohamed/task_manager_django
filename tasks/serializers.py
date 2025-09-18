@@ -71,7 +71,9 @@ class RecurringTaskSerializer(serializers.ModelSerializer):
 
 
 class CommentSerializer(serializers.ModelSerializer):
-    author = serializers.PrimaryKeyRelatedField(read_only=True)
+    # author = serializers.PrimaryKeyRelatedField(read_only=True)
+    author = serializers.CharField(source='author.email', read_only=True)
+
     
     class Meta:
         model = Comment

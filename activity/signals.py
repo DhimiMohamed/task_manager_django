@@ -44,12 +44,20 @@ class ModelTracker:
 def get_project_from_instance(instance):
     """Extract project from various model instances"""
     # Direct project reference
-    if hasattr(instance, 'project'):
+    if hasattr(instance, 'project') and instance.project:
         return instance.project
     
     # Task model - get project from task
-    if hasattr(instance, 'project_id'):
+    if hasattr(instance, 'project_id') and instance.project_id:
         return getattr(instance, 'project', None)
+    
+    # Comment model - get project through task
+    if hasattr(instance, 'task') and instance.task:
+        return getattr(instance.task, 'project', None)
+    
+    # FileAttachment model - get project through task
+    if hasattr(instance, 'task') and instance.task:
+        return getattr(instance.task, 'project', None)
     
     # Team model - might need to handle differently based on your structure
     if instance.__class__.__name__ == 'Team':
