@@ -94,7 +94,19 @@ def post_save_handler(sender, instance, created, **kwargs):
     user = getattr(instance, 'last_modified_by', None) or get_current_user()
     
     tracker = ModelTracker()
-    action = 'create' if created else 'update'
+    
+    # Determine the correct action based on model type and creation status
+    if created:
+        # Check if this is a comment model
+        if sender.__name__.lower() == 'comment' or 'comment' in sender.__name__.lower():
+            action = 'comment'
+        # Check if this is a file upload model
+        elif sender.__name__.lower() in ['fileattachment', 'attachment'] or 'file' in sender.__name__.lower():
+            action = 'file_upload'
+        else:
+            action = 'create'
+    else:
+        action = 'update'
     
     changes = {}
     if not created and hasattr(instance, '_pre_save_state'):
@@ -108,6 +120,18 @@ def post_save_handler(sender, instance, created, **kwargs):
     # Get project from instance
     project = get_project_from_instance(instance)
     
+    # For comments, try to get the comment text
+    comment_text = None
+    if action == 'comment':
+        # Try different common field names for comment text
+        comment_text = (
+            getattr(instance, 'text', None) or 
+            getattr(instance, 'content', None) or 
+            getattr(instance, 'comment', None) or
+            getattr(instance, 'message', None) or
+            str(instance)
+        )
+    
     with transaction.atomic():
         ActivityLog.objects.create(
             user=user,
@@ -116,6 +140,7 @@ def post_save_handler(sender, instance, created, **kwargs):
             from_state=str(instance._pre_save_state) if not created else None,
             to_state=str(instance) if not created else None,
             attachment_info=changes if changes else None,
+            comment_text=comment_text,  # Add comment text for comment actions
             project=project  # Add project to activity log
         )
 

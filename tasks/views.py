@@ -483,6 +483,178 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .models import Task, Project, Category
 
+# class TaskStatisticsView(APIView):
+#     permission_classes = [IsAuthenticated]
+    
+#     @swagger_auto_schema(
+#         operation_description="Get task statistics for the authenticated user",
+#         responses={
+#             200: openapi.Response(
+#                 description="Task statistics data",
+#                 schema=openapi.Schema(
+#                     type=openapi.TYPE_OBJECT,
+#                     properties={
+#                         'total_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                         'completed_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                         'pending_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                         'upcoming_tasks': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                         'daily_tasks': openapi.Schema(
+#                             type=openapi.TYPE_OBJECT,
+#                             properties={
+#                                 'labels': openapi.Schema(
+#                                     type=openapi.TYPE_ARRAY,
+#                                     items=openapi.Schema(type=openapi.TYPE_STRING)
+#                                 ),
+#                                 'data': openapi.Schema(
+#                                     type=openapi.TYPE_ARRAY,
+#                                     items=openapi.Schema(type=openapi.TYPE_INTEGER)
+#                                 )
+#                             }
+#                         ),
+#                         'heatmap_data': openapi.Schema(
+#                             type=openapi.TYPE_ARRAY,
+#                             items=openapi.Schema(
+#                                 type=openapi.TYPE_ARRAY,
+#                                 items=openapi.Schema(type=openapi.TYPE_INTEGER)
+#                             )
+#                         ),
+#                         'categories': openapi.Schema(
+#                             type=openapi.TYPE_ARRAY,
+#                             items=openapi.Schema(
+#                                 type=openapi.TYPE_OBJECT,
+#                                 properties={
+#                                     'name': openapi.Schema(type=openapi.TYPE_STRING),
+#                                     'total': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                                     'completed': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                                     'value': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                                     'color': openapi.Schema(type=openapi.TYPE_STRING)
+#                                 }
+#                             )
+#                         ),
+#                         'projects': openapi.Schema(
+#                             type=openapi.TYPE_ARRAY,
+#                             items=openapi.Schema(
+#                                 type=openapi.TYPE_OBJECT,
+#                                 properties={
+#                                     'name': openapi.Schema(type=openapi.TYPE_STRING),
+#                                     'total': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                                     'completed': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                                     'completion_rate': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                                     'color': openapi.Schema(type=openapi.TYPE_STRING),
+#                                     'team_name': openapi.Schema(type=openapi.TYPE_STRING),
+#                                     'team_members_count': openapi.Schema(type=openapi.TYPE_INTEGER)
+#                                 }
+#                             )
+#                         ),
+#                         'completion_rate': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                         'pending_rate': openapi.Schema(type=openapi.TYPE_INTEGER)
+#                     }
+#                 )
+#             ),
+#             401: "Unauthorized"
+#         },
+#         security=[{"Bearer": []}]
+#     )
+
+#     def get(self, request):
+#         user = request.user
+#         today = now().date()
+        
+#         # Get last 7 days for the overview chart
+#         last_week_dates = [today - timedelta(days=i) for i in range(6, -1, -1)]
+        
+#         # Get all tasks for the user
+#         tasks = Task.objects.filter(user=user)
+
+#         # Basic counts for the cards
+#         total = tasks.count()
+#         completed = tasks.filter(status='completed').count()
+#         pending = tasks.filter(status='pending').count()
+#         upcoming = tasks.filter(due_date__gte=today, due_date__lt=today + timedelta(days=1)).count()
+
+#         # Weekly task data for the bar chart (last 7 days)
+#         daily_tasks = defaultdict(int)
+        
+#         for date in last_week_dates:
+#             daily_tasks[date.strftime("%a")] = tasks.filter(
+#                 due_date=date
+#             ).count()
+
+#         # Productivity heatmap data (tasks by scheduled hour and day of week)
+#         heatmap_data = [[0] * 24 for _ in range(7)]  # 7 days x 24 hours
+        
+#         for task in tasks.exclude(due_date__isnull=True).exclude(start_time__isnull=True):
+#             day_of_week = task.due_date.weekday()  # Monday=0, Sunday=6
+#             hour_of_day = task.start_time.hour if task.start_time else 12  # Default to noon if no time specified
+#             heatmap_data[day_of_week][hour_of_day] += 1
+
+#         # Category breakdown for pie chart
+#         category_stats = []
+#         category_tasks = tasks.values('category__name').annotate(
+#             total=Count('id'),
+#             completed=Count('id', filter=Q(status='completed'))
+#         )
+        
+#         for item in category_tasks:
+#             name = item['category__name'] or "Uncategorized"
+#             category_stats.append({
+#                 "name": name,
+#                 "total": item['total'],
+#                 "completed": item['completed'],
+#                 "value": item['total'],  # For the pie chart
+#                 "color": Category.objects.filter(name=name, user=user).first().color if name != "Uncategorized" else "#CCCCCC"
+#             })
+
+#         # Project breakdown - NEW IMPROVED VERSION
+#         project_stats = []
+        
+#         # Get all projects the user is associated with (either through team membership or ownership)
+#         user_projects = Project.objects.filter(
+#             Q(team__members=user) | Q(created_by=user)
+#         ).distinct().prefetch_related('team__members')
+        
+#         for project in user_projects:
+#             project_tasks = tasks.filter(project=project)
+#             total_tasks = project_tasks.count()
+#             completed_tasks = project_tasks.filter(status='completed').count()
+            
+#             project_stats.append({
+#                 "name": project.name,
+#                 "total": total_tasks,
+#                 "completed": completed_tasks,
+#                 "completion_rate": round((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0,
+#                 "color": "#4CAF50",  # You might want to store this on the Project model
+#                 "team_name": project.team.name if project.team else "Personal",
+#                 "team_members_count": project.team.members.count() if project.team else 1
+#             })
+
+#         return Response({
+#             # Card data
+#             "total_tasks": total,
+#             "completed_tasks": completed,
+#             "pending_tasks": pending,
+#             "upcoming_tasks": upcoming,
+            
+#             # Task overview chart data (last 7 days)
+#             "daily_tasks": {
+#                 "labels": list(daily_tasks.keys()),
+#                 "data": list(daily_tasks.values())
+#             },
+            
+#             # Productivity heatmap data (based on scheduled time)
+#             "heatmap_data": heatmap_data,
+            
+#             # Category breakdown
+#             "categories": category_stats,
+            
+#             # Project breakdown (now with team info)
+#             "projects": project_stats,
+            
+#             # Additional info that might be useful
+#             "completion_rate": round((completed / total) * 100) if total > 0 else 0,
+#             "pending_rate": round((pending / total) * 100) if total > 0 else 0
+#         })
+
 class TaskStatisticsView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -555,7 +727,6 @@ class TaskStatisticsView(APIView):
         },
         security=[{"Bearer": []}]
     )
-
     def get(self, request):
         user = request.user
         today = now().date()
@@ -563,98 +734,97 @@ class TaskStatisticsView(APIView):
         # Get last 7 days for the overview chart
         last_week_dates = [today - timedelta(days=i) for i in range(6, -1, -1)]
         
-        # Get all tasks for the user
-        tasks = Task.objects.filter(user=user)
-
-        # Basic counts for the cards
-        total = tasks.count()
-        completed = tasks.filter(status='completed').count()
-        pending = tasks.filter(status='pending').count()
-        upcoming = tasks.filter(due_date__gte=today, due_date__lt=today + timedelta(days=1)).count()
-
-        # Weekly task data for the bar chart (last 7 days)
-        daily_tasks = defaultdict(int)
+        # ✅ PERSONAL TASKS: Tasks assigned to the authenticated user
+        personal_tasks = Task.objects.filter(user=user)
         
+        # ✅ PROJECT TASKS: All tasks from projects where user is a member
+        user_projects = Project.objects.filter(
+            Q(team__members=user) | Q(created_by=user)
+        ).distinct()
+        project_tasks = Task.objects.filter(project__in=user_projects)
+
+        # ✅ PERSONAL STATISTICS (for cards and personal charts)
+        personal_total = personal_tasks.count()
+        personal_completed = personal_tasks.filter(status='completed').count()
+        personal_pending = personal_tasks.filter(status='pending').count()
+        personal_upcoming = personal_tasks.filter(due_date__gte=today, due_date__lt=today + timedelta(days=1)).count()
+
+        # Personal weekly task data
+        personal_daily_tasks = defaultdict(int)
         for date in last_week_dates:
-            daily_tasks[date.strftime("%a")] = tasks.filter(
+            personal_daily_tasks[date.strftime("%a")] = personal_tasks.filter(
                 due_date=date
             ).count()
 
-        # Productivity heatmap data (tasks by scheduled hour and day of week)
-        heatmap_data = [[0] * 24 for _ in range(7)]  # 7 days x 24 hours
-        
-        for task in tasks.exclude(due_date__isnull=True).exclude(start_time__isnull=True):
-            day_of_week = task.due_date.weekday()  # Monday=0, Sunday=6
-            hour_of_day = task.start_time.hour if task.start_time else 12  # Default to noon if no time specified
-            heatmap_data[day_of_week][hour_of_day] += 1
+        # Personal productivity heatmap
+        personal_heatmap_data = [[0] * 24 for _ in range(7)]
+        for task in personal_tasks.exclude(due_date__isnull=True).exclude(start_time__isnull=True):
+            day_of_week = task.due_date.weekday()
+            hour_of_day = task.start_time.hour if task.start_time else 12
+            personal_heatmap_data[day_of_week][hour_of_day] += 1
 
-        # Category breakdown for pie chart
-        category_stats = []
-        category_tasks = tasks.values('category__name').annotate(
+        # Personal category breakdown
+        personal_category_stats = []
+        personal_category_data = personal_tasks.values('category__name').annotate(
             total=Count('id'),
             completed=Count('id', filter=Q(status='completed'))
         )
         
-        for item in category_tasks:
+        for item in personal_category_data:
             name = item['category__name'] or "Uncategorized"
-            category_stats.append({
+            personal_category_stats.append({
                 "name": name,
                 "total": item['total'],
                 "completed": item['completed'],
-                "value": item['total'],  # For the pie chart
+                "value": item['total'],
                 "color": Category.objects.filter(name=name, user=user).first().color if name != "Uncategorized" else "#CCCCCC"
             })
 
-        # Project breakdown - NEW IMPROVED VERSION
+        # ✅ PROJECT STATISTICS (for project progress)
         project_stats = []
-        
-        # Get all projects the user is associated with (either through team membership or ownership)
-        user_projects = Project.objects.filter(
-            Q(team__members=user) | Q(created_by=user)
-        ).distinct().prefetch_related('team__members')
-        
-        for project in user_projects:
-            project_tasks = tasks.filter(project=project)
-            total_tasks = project_tasks.count()
-            completed_tasks = project_tasks.filter(status='completed').count()
+        for project in user_projects.prefetch_related('team__members'):
+            # Use project_tasks filtered by this specific project
+            tasks_in_project = project_tasks.filter(project=project)
+            total_tasks = tasks_in_project.count()
+            completed_tasks = tasks_in_project.filter(status='completed').count()
             
             project_stats.append({
                 "name": project.name,
+                "id": project.id,  # Important for frontend matching
                 "total": total_tasks,
                 "completed": completed_tasks,
                 "completion_rate": round((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0,
-                "color": "#4CAF50",  # You might want to store this on the Project model
+                "color": "#4CAF50",
                 "team_name": project.team.name if project.team else "Personal",
                 "team_members_count": project.team.members.count() if project.team else 1
             })
 
         return Response({
-            # Card data
-            "total_tasks": total,
-            "completed_tasks": completed,
-            "pending_tasks": pending,
-            "upcoming_tasks": upcoming,
+            # ✅ PERSONAL STATS (for dashboard cards and personal analytics)
+            "total_tasks": personal_total,
+            "completed_tasks": personal_completed,
+            "pending_tasks": personal_pending,
+            "upcoming_tasks": personal_upcoming,
             
-            # Task overview chart data (last 7 days)
+            # Personal task overview chart data
             "daily_tasks": {
-                "labels": list(daily_tasks.keys()),
-                "data": list(daily_tasks.values())
+                "labels": list(personal_daily_tasks.keys()),
+                "data": list(personal_daily_tasks.values())
             },
             
-            # Productivity heatmap data (based on scheduled time)
-            "heatmap_data": heatmap_data,
+            # Personal productivity heatmap
+            "heatmap_data": personal_heatmap_data,
             
-            # Category breakdown
-            "categories": category_stats,
+            # Personal category breakdown
+            "categories": personal_category_stats,
             
-            # Project breakdown (now with team info)
+            # ✅ PROJECT STATS (for project progress tracking)
             "projects": project_stats,
             
-            # Additional info that might be useful
-            "completion_rate": round((completed / total) * 100) if total > 0 else 0,
-            "pending_rate": round((pending / total) * 100) if total > 0 else 0
+            # Personal completion rates
+            "completion_rate": round((personal_completed / personal_total) * 100) if personal_total > 0 else 0,
+            "pending_rate": round((personal_pending / personal_total) * 100) if personal_total > 0 else 0
         })
-
 
 
 # *****************************************************************************************
