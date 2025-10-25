@@ -1,5 +1,5 @@
 . table 
--- PRAGMA table_info(accounts_profile); 
+PRAGMA table_info(accounts_customuser); 
 -- PRAGMA table_info(token_blacklist_blacklistedtoken);
 -- PRAGMA table_info(token_blacklist_outstandingtoken);
 -- PRAGMA table_info(django_content_type); 
@@ -15,7 +15,7 @@
 -- UPDATE tasks_task SET due_date = '2025-10-01' ;                   
 -- select * from django_content_type;
 
-SELECT * FROM django_celery_beat_periodictask;
+-- SELECT * FROM django_celery_beat_periodictask;
 
 
 -- DELETE FROM accounts_customuser WHERE id = 1;

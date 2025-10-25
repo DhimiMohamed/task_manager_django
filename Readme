@@ -22,7 +22,9 @@ FLUSHALL
 # create redis container 
 docker run --name my_redis -p 6379:6379 -d redis
 
-
+# --------------------------------------
+task managment 
+pszi qyfp uvzj wcal
 # version: '3.8'
 
 # services:
