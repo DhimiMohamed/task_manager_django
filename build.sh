@@ -2,10 +2,6 @@
 # Exit on error
 set -o errexit
 
-# Create a virtual environment (Render will use this)
-python -m venv venv
-source venv/bin/activate
-
 # Upgrade pip
 pip install --upgrade pip
 
@@ -16,4 +12,4 @@ pip install -r requirements.txt
 python manage.py migrate
 
 # Collect static files
-python manage.py collectstatic --no-input
+python manage.py collectstatic --noinput
