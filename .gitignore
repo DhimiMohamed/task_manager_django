@@ -23,8 +23,8 @@ staticfiles/
 .env
 
 # Migrations (optional, if you don’t want to track them)  
-**/migrations/**  
-!**/migrations/__init__.py  
+# **/migrations/**  
+# !**/migrations/__init__.py  
 
 
 # Build scripts (multiple patterns)

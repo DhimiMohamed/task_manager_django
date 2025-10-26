@@ -257,3 +257,14 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # Local filesystem path
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+
+
+
+
+# Add this to your settings.py
+CSRF_TRUSTED_ORIGINS = [
+    'https://taskmanagerdjango-production.up.railway.app',
+    'http://localhost:5173',
+    'https://your-react-app.vercel.app',
+]
