@@ -232,9 +232,8 @@ SWAGGER_SETTINGS = {
 # CORS_ALLOWED_ORIGINS = [
 #     "http://localhost:5173",
 # ]
-CORS_ALLOWED_ORIGINS = [
-    "*",
-]
+CORS_ALLOW_ALL_ORIGINS = True  # This one line fixes everything
+
 
 CORS_ALLOW_CREDENTIALS = True
 
