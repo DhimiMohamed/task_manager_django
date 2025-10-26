@@ -205,17 +205,17 @@ SIMPLE_JWT = {
 }
 
 
-CELERY_BROKER_URL = 'redis://localhost:6379/0'  
-CELERY_TIMEZONE = 'UTC'
+# CELERY_BROKER_URL = 'redis://localhost:6379/0'  
+# CELERY_TIMEZONE = 'UTC'
 
-from celery.schedules import crontab
+# from celery.schedules import crontab
 
-CELERY_BEAT_SCHEDULE = {
-    'check-reminders-every-5-minutes': {
-        'task': 'reminders.tasks.check_and_send_reminders',
-        'schedule': crontab(minute='*/5'),
-    },
-}
+# CELERY_BEAT_SCHEDULE = {
+#     'check-reminders-every-5-minutes': {
+#         'task': 'reminders.tasks.check_and_send_reminders',
+#         'schedule': crontab(minute='*/5'),
+#     },
+# }
 
 
 SWAGGER_SETTINGS = {
